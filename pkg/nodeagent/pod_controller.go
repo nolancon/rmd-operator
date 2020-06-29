@@ -345,6 +345,21 @@ func findKubepodsCgroup() (string, error) {
 	return "", nil
 }
 
+func findPodCgroup(kubepodsCgroupPath string, podUID string) (string, error) {
+	podUIDUnderscores := strings.ReplaceAll(podUID, "-", "_")
+	fileVersions := []string{podUID, podUIDUnderscores}
+	for _, fileVersion := range fileVersions {
+		podCgroupPath, err := findCgroupPath(kubepodsCgroupPath, fileVersion)
+		if err != nil {
+			return "", err
+		}
+		if podCgroupPath != "" {
+			return podCgroupPath, nil
+		}
+	}
+	return "", nil
+}
+
 func readCgroupCpuset(podUID string, containerID string) ([]string, error) {
 	containerID = strings.TrimPrefix(containerID, dockerPrefix)
 	kubepodsCgroupPath, err := findKubepodsCgroup()
@@ -355,7 +370,7 @@ func readCgroupCpuset(podUID string, containerID string) ([]string, error) {
 		return nil, errors.NewServiceUnavailable("kubepods cgroup file not found")
 	}
 
-	podCgroupPath, err := findCgroupPath(kubepodsCgroupPath, podUID)
+	podCgroupPath, err := findPodCgroup(kubepodsCgroupPath, podUID)
 	if err != nil {
 		return nil, err
 	}
@@ -383,7 +398,6 @@ func readCgroupCpuset(podUID string, containerID string) ([]string, error) {
 	for _, cpu := range cpuSetSlice {
 		cpuStrSlice = append(cpuStrSlice, strconv.Itoa(cpu))
 	}
-
 	return cpuStrSlice, nil
 }
 

@@ -12,12 +12,12 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes/scheme"
-
 	"os"
 	"path/filepath"
 	"reflect"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	"strings"
 	"testing"
 )
 
@@ -56,6 +56,7 @@ func createMockCgroupfs(base string, podUID string, containerID string, t *testi
 }
 
 func createMockSystemdfs(base string, podUID string, containerID string, t *testing.T) string {
+	podUID = strings.Replace(podUID, "-", "_", -1)
 	path := fmt.Sprintf("%s%s%s%s%s%s", base, "/kubepods.slice/pod", podUID, ".slice/docker-", containerID, ".slice")
 	err := os.MkdirAll(path, 0666)
 	if err != nil {
@@ -395,13 +396,15 @@ func TestReadCgroupCpuset(t *testing.T) {
 			if !reflect.DeepEqual(tc.expectedCoreIDs, coreIDs) {
 				t.Errorf("Failed: %v - Expected %v, got %v", tc.name, tc.expectedCoreIDs, coreIDs)
 			}
-
-			dir = createMockSystemdfs(cgroupPath, tc.podUID, tc.containerID, t)
-			tmpfn = filepath.Join(dir, "cpuset.cpus")
+		}
+		os.RemoveAll("./test_cgroup")
+		for _, cgroupPath := range cgroupPaths {
+			dir := createMockSystemdfs(cgroupPath, tc.podUID, tc.containerID, t)
+			tmpfn := filepath.Join(dir, "cpuset.cpus")
 			if err := ioutil.WriteFile(tmpfn, content, 0666); err != nil {
 				t.Fatalf("error writing to file (%v)", err)
 			}
-			coreIDs, err = readCgroupCpuset(tc.podUID, tc.containerID)
+			coreIDs, err := readCgroupCpuset(tc.podUID, tc.containerID)
 			if err != nil {
 				t.Errorf("error reading cgroups cpuset (%v)", err)
 			}
