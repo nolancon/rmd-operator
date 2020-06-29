@@ -1,5 +1,5 @@
 # Intel RMD Operator
-Kubernetes Operator designed to provision and manage Intel Resource Management Daemon (RMD) instances in a Kubernetes cluster.
+Kubernetes Operator designed to provision and manage Intel [Resource Management Daemon (RMD)](https://github.com/intel/rmd) instances in a Kubernetes cluster.
 
 ## Prerequisites
 * Node Feature Discovery ([NFD](https://github.com/kubernetes-sigs/node-feature-discovery)) should be deployed in the cluster before running the operator. Once NFD has applied labels to nodes with capabilities compatible with RMD, such as *Intel L3 Cache Allocation Technology*, the operator can deploy RMD on those nodes. 
