@@ -4,7 +4,14 @@ Kubernetes Operator designed to provision and manage Intel Resource Management D
 ## Prerequisites
 * Node Feature Discovery ([NFD](https://github.com/kubernetes-sigs/node-feature-discovery)) should be deployed in the cluster before running the operator. Once NFD has applied labels to nodes with capabilities compatible with RMD, such as *Intel L3 Cache Allocation Technology*, the operator can deploy RMD on those nodes. 
 Note: NFD is recommended, but not essential. Node labels can also be applied manually. See the [NFD repo](https://github.com/kubernetes-sigs/node-feature-discovery#feature-labels) for a full list of features labels.
-* A working RMD container image from the [RMD repo](https://github.com/intel/rmd). The operator is currently compatible with RMD v0.2 only.  
+* A working RMD container image from the [RMD repo](https://github.com/intel/rmd) compatible with the RMD Operator (see compatiblilty table below).  
+
+### Compatibility
+|  RMD Version | RMD Operator Version |
+| ------ | ------ |
+| v0.1 | N/A |
+| v0.2 | v0.1 |
+| v0.3 | v0.2 |
 
 ## Setup
 
@@ -31,6 +38,8 @@ The pod spec used by the operator to deploy the RMD container is located at **bu
 Build binaries and create docker images for the operator and the node agent:
 
 `make all`
+
+*Note:* The Docker images built are `intel-rmd-operator:latest` and `intel-rmd-node-agent:latest`. Once built, these images should be stored in a remote docker repository for use throughout the cluster.
 
 ### Deploy
 The **deploy** directory contains all specifications for the required RBAC objects. These objects can be inspected and deployed individually or created all at once using rbac.yaml:
@@ -214,6 +223,8 @@ This example displays the RmdNodeState for worker-node-1. It shows that this nod
 
 ## Pod Requesting Cache Ways
 It is also possible for the operator to create an RmdWorkload **automatically** by interpreting resource requests and [annotations](https://kubernetes.io/docs/concepts/overview/working-with-objects/annotations/) in the pod spec.
+
+**Warning**: Automatic creation of workloads may be unstable and is **not recommended in production** for the RMD Operator v0.1. However, testing and feedback is welcomed to help stabilize this approach for future releases.
 
 Under this approach, the user creates a pod with a container requesting **exclusive** CPUs from the Kubelet CPU Manager and available cache ways. The pod must also contain RMD specific pod annotations to describe the desired RmdWorkload.
 It is then the responsiblity of the operator and the node agent to do the following:
