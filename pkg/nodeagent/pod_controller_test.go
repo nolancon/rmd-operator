@@ -655,7 +655,7 @@ func TestGetContainerRequestingCache(t *testing.T) {
 		containers []corev1.Container
 	}{
 		{
-			name: "test case 1 - single contianer requesting cache",
+			name: "test case 1 - single container requesting cache",
 			pod: &corev1.Pod{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "pod-1",
@@ -862,6 +862,167 @@ func TestGetContainerRequestingCache(t *testing.T) {
 
 	}
 
+}
+
+func TestGetMaxCache(t *testing.T) {
+	tcases := []struct {
+		name        string
+		container   *corev1.Container
+		cacheLimit  int
+		expectedErr bool
+	}{
+		{
+			name: "test case 1 - container requesting 2 caches",
+			container: &corev1.Container{
+				Name: "nginx1",
+				Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceName("intel.com/l3_cache_ways"): resource.MustParse("2"),
+					},
+					Limits: corev1.ResourceList{
+						corev1.ResourceName("intel.com/l3_cache_ways"): resource.MustParse("2"),
+					},
+				},
+			},
+			cacheLimit:  2,
+			expectedErr: false,
+		},
+
+		{
+			name: "test case 2 - container requests 0 cache",
+			container: &corev1.Container{
+				Name: "nginx2",
+				Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceName("intel.com/l3_cache_ways"): resource.MustParse("0"),
+					},
+					Limits: corev1.ResourceList{
+						corev1.ResourceName("intel.com/l3_cache_ways"): resource.MustParse("0"),
+					},
+				},
+			},
+			cacheLimit:  0,
+			expectedErr: false,
+		},
+
+		{
+			name: "test case 3 - container requests negative amount of cache",
+			container: &corev1.Container{
+				Name: "nginx3",
+				Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceName("intel.com/l3_cache_ways"): resource.MustParse("-2"),
+					},
+					Limits: corev1.ResourceList{
+						corev1.ResourceName("intel.com/l3_cache_ways"): resource.MustParse("-2"),
+					},
+				},
+			},
+			cacheLimit:  -2,
+			expectedErr: false,
+		},
+
+		{
+			name: "test case 4 - floating point number requested",
+			container: &corev1.Container{
+				Name: "nginx4",
+				Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceName("intel.com/l3_cache_ways"): resource.MustParse("2.5"),
+					},
+					Limits: corev1.ResourceList{
+						corev1.ResourceName("intel.com/l3_cache_ways"): resource.MustParse("2.5"),
+					},
+				},
+			},
+			cacheLimit:  0,
+			expectedErr: true,
+		},
+
+		{
+			name: "test case 5 - cache requested using a resource other than l3_cache_ways",
+			container: &corev1.Container{
+				Name: "nginx5",
+				Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceName("intel.com/l2_cache_ways"): resource.MustParse("2"),
+					},
+					Limits: corev1.ResourceList{
+						corev1.ResourceName("intel.com/l2_cache_ways"): resource.MustParse("2"),
+					},
+				},
+			},
+			cacheLimit:  0,
+			expectedErr: false,
+		},
+
+		{
+			name: "test case 6 - typos in resource used to request cache",
+			container: &corev1.Container{
+				Name: "nginx6",
+				Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceName("intel.com/l3_cacheways"): resource.MustParse("2"),
+					},
+					Limits: corev1.ResourceList{
+						corev1.ResourceName("intel.com/l3_cacheways"): resource.MustParse("2"),
+					},
+				},
+			},
+			cacheLimit:  0,     //no cache can be assigned, incorrect resource
+			expectedErr: false, //doesn't throw an error, just doesn't allocate cache
+		},
+
+		{
+			name: "test case 7 - single typo in resource used to request minimum cache",
+			container: &corev1.Container{
+				Name: "nginx7",
+				Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceName("intel.com/l3_cache_ways"): resource.MustParse("2"),
+					},
+					Limits: corev1.ResourceList{
+						corev1.ResourceName("intel.com/l3_cacheways"): resource.MustParse("2"),
+					},
+				},
+			},
+			cacheLimit:  0, //no cache can be assigned 'incorrect' resource used
+			expectedErr: false,
+		},
+
+		{
+			name: "test case 8 - single typo in resource used to request maximum cache",
+			container: &corev1.Container{
+				Name: "nginx8",
+				Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceName("intel.com/l3_cacheways"): resource.MustParse("2"),
+					},
+					Limits: corev1.ResourceList{
+						corev1.ResourceName("intel.com/l3_cache_ways"): resource.MustParse("2"),
+					},
+				},
+			},
+			cacheLimit:  2, // cache will be assigned because the function looks at the cache limit not the cache request
+			expectedErr: false,
+		},
+	}
+
+	//loop through slice and test each testCase
+	for _, tc := range tcases {
+		limit, err := getMaxCache(tc.container)
+		functionFailed := false
+		if err != nil {
+			functionFailed = true
+		}
+		if functionFailed != tc.expectedErr {
+
+			t.Errorf("Failed: An error has occurred")
+		}
+		if limit != tc.cacheLimit {
+			t.Errorf("Failed: %v \nExpected %d\n, got %d\n", tc.name, tc.cacheLimit, limit)
+		}
+	}
 }
 
 func TestGetContainerID(t *testing.T) {
