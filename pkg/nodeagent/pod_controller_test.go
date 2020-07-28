@@ -423,11 +423,11 @@ func TestBuildRmdWorkload(t *testing.T) {
 	tcases := []struct {
 		name                 string
 		pod                  *corev1.Pod
-		cores                string
+		cores                []string
 		expectedRmdWorkloads []*intelv1alpha1.RmdWorkload
 	}{
 		{
-			name: "test case 1 - all fields with cache",
+			name: "test case 1 - all fields with cache, 2 containers",
 			pod: &corev1.Pod{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "pod-1",
@@ -436,6 +436,9 @@ func TestBuildRmdWorkload(t *testing.T) {
 					Annotations: map[string]string{
 						"nginx1_policy":    "gold",
 						"nginx1_cache_min": "2",
+
+						"nginx2_policy":    "gold",
+						"nginx2_cache_min": "2",
 					},
 				},
 				Spec: corev1.PodSpec{
@@ -443,6 +446,21 @@ func TestBuildRmdWorkload(t *testing.T) {
 					Containers: []corev1.Container{
 						{
 							Name: "nginx1",
+							Resources: corev1.ResourceRequirements{
+								Requests: corev1.ResourceList{
+									corev1.ResourceName("intel.com/l3_cache_ways"): resource.MustParse("2"),
+									corev1.ResourceName(corev1.ResourceCPU):        resource.MustParse("1"),
+									corev1.ResourceName(corev1.ResourceMemory):     resource.MustParse("1G"),
+								},
+								Limits: corev1.ResourceList{
+									corev1.ResourceName("intel.com/l3_cache_ways"): resource.MustParse("2"),
+									corev1.ResourceName(corev1.ResourceCPU):        resource.MustParse("1"),
+									corev1.ResourceName(corev1.ResourceMemory):     resource.MustParse("1G"),
+								},
+							},
+						},
+						{
+							Name: "nginx2",
 							Resources: corev1.ResourceRequirements{
 								Requests: corev1.ResourceList{
 									corev1.ResourceName("intel.com/l3_cache_ways"): resource.MustParse("2"),
@@ -464,10 +482,14 @@ func TestBuildRmdWorkload(t *testing.T) {
 							Name:        "nginx1",
 							ContainerID: "7479d8c641a73fced579a3517b6d2def3f0a3a3a7e659f86ce4db61dc9f38",
 						},
+						{
+							Name:        "nginx2",
+							ContainerID: "c70a7a9e1b574fc9b73b74a650d30ab2c94d63da7e38eff98cb91021bec56",
+						},
 					},
 				},
 			},
-			cores: "0",
+			cores: []string{"0", "2,3"},
 			expectedRmdWorkloads: []*intelv1alpha1.RmdWorkload{
 				{
 					ObjectMeta: metav1.ObjectMeta{
@@ -486,20 +508,41 @@ func TestBuildRmdWorkload(t *testing.T) {
 						},
 					},
 				},
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "pod-1-rmd-workload-nginx2",
+						Namespace: "default",
+					},
+					Spec: intelv1alpha1.RmdWorkloadSpec{
+						Nodes:   []string{"example-node-1.com"},
+						CoreIds: []string{"2", "3"},
+						Policy:  "gold",
+						Rdt: intelv1alpha1.Rdt{
+							Cache: intelv1alpha1.Cache{
+								Max: 2,
+								Min: 2,
+							},
+						},
+					},
+				},
 			},
 		},
 		{
-			name: "test case 2 - all fields with cache and pstate",
+			name: "test case 2 - all fields with cache, 3 containers",
 			pod: &corev1.Pod{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "pod-1",
 					Namespace: "default",
 					UID:       "f906a249-ab9d-4180-9afa-4075e2058ac7",
 					Annotations: map[string]string{
-						"nginx1_policy":            "gold",
-						"nginx1_cache_min":         "2",
-						"nginx1_pstate_monitoring": "on",
-						"nginx1_pstate_ratio":      "1.5",
+						"nginx1_policy":    "gold",
+						"nginx1_cache_min": "2",
+
+						"nginx2_policy":    "gold",
+						"nginx2_cache_min": "2",
+
+						"nginx3_policy":    "gold",
+						"nginx3_cache_min": "3",
 					},
 				},
 				Spec: corev1.PodSpec{
@@ -520,6 +563,36 @@ func TestBuildRmdWorkload(t *testing.T) {
 								},
 							},
 						},
+						{
+							Name: "nginx2",
+							Resources: corev1.ResourceRequirements{
+								Requests: corev1.ResourceList{
+									corev1.ResourceName("intel.com/l3_cache_ways"): resource.MustParse("2"),
+									corev1.ResourceName(corev1.ResourceCPU):        resource.MustParse("1"),
+									corev1.ResourceName(corev1.ResourceMemory):     resource.MustParse("1G"),
+								},
+								Limits: corev1.ResourceList{
+									corev1.ResourceName("intel.com/l3_cache_ways"): resource.MustParse("2"),
+									corev1.ResourceName(corev1.ResourceCPU):        resource.MustParse("1"),
+									corev1.ResourceName(corev1.ResourceMemory):     resource.MustParse("1G"),
+								},
+							},
+						},
+						{
+							Name: "nginx3",
+							Resources: corev1.ResourceRequirements{
+								Requests: corev1.ResourceList{
+									corev1.ResourceName("intel.com/l3_cache_ways"): resource.MustParse("3"),
+									corev1.ResourceName(corev1.ResourceCPU):        resource.MustParse("1"),
+									corev1.ResourceName(corev1.ResourceMemory):     resource.MustParse("1G"),
+								},
+								Limits: corev1.ResourceList{
+									corev1.ResourceName("intel.com/l3_cache_ways"): resource.MustParse("3"),
+									corev1.ResourceName(corev1.ResourceCPU):        resource.MustParse("1"),
+									corev1.ResourceName(corev1.ResourceMemory):     resource.MustParse("1G"),
+								},
+							},
+						},
 					},
 				},
 				Status: corev1.PodStatus{
@@ -528,10 +601,140 @@ func TestBuildRmdWorkload(t *testing.T) {
 							Name:        "nginx1",
 							ContainerID: "7479d8c641a73fced579a3517b6d2def3f0a3a3a7e659f86ce4db61dc9f38",
 						},
+						{
+							Name:        "nginx2",
+							ContainerID: "c70a7a9e1b574fc9b73b74a650d30ab2c94d63da7e38eff98cb91021bec56",
+						},
+						{
+							Name:        "nginx3",
+							ContainerID: "64de54d42dd92fc629158dc837d74f5e28435663e869b006db1649e535a08",
+						},
 					},
 				},
 			},
-			cores: "0,11",
+			cores: []string{"0", "2,3", "8-10"},
+			expectedRmdWorkloads: []*intelv1alpha1.RmdWorkload{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "pod-1-rmd-workload-nginx1",
+						Namespace: "default",
+					},
+					Spec: intelv1alpha1.RmdWorkloadSpec{
+						Nodes:   []string{"example-node-1.com"},
+						CoreIds: []string{"0"},
+						Policy:  "gold",
+						Rdt: intelv1alpha1.Rdt{
+							Cache: intelv1alpha1.Cache{
+								Max: 2,
+								Min: 2,
+							},
+						},
+					},
+				},
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "pod-1-rmd-workload-nginx2",
+						Namespace: "default",
+					},
+					Spec: intelv1alpha1.RmdWorkloadSpec{
+						Nodes:   []string{"example-node-1.com"},
+						CoreIds: []string{"2", "3"},
+						Policy:  "gold",
+						Rdt: intelv1alpha1.Rdt{
+							Cache: intelv1alpha1.Cache{
+								Max: 2,
+								Min: 2,
+							},
+						},
+					},
+				},
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "pod-1-rmd-workload-nginx3",
+						Namespace: "default",
+					},
+					Spec: intelv1alpha1.RmdWorkloadSpec{
+						Nodes:   []string{"example-node-1.com"},
+						CoreIds: []string{"8", "9", "10"},
+						Policy:  "gold",
+						Rdt: intelv1alpha1.Rdt{
+							Cache: intelv1alpha1.Cache{
+								Max: 3,
+								Min: 3,
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "test case 3 - all fields with cache and pstate, 2 containers",
+			pod: &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "pod-1",
+					Namespace: "default",
+					UID:       "f906a249-ab9d-4180-9afa-4075e2058ac7",
+					Annotations: map[string]string{
+						"nginx1_policy":            "gold",
+						"nginx1_cache_min":         "2",
+						"nginx1_pstate_monitoring": "on",
+						"nginx1_pstate_ratio":      "1.5",
+
+						"nginx2_policy":            "gold",
+						"nginx2_cache_min":         "1",
+						"nginx2_pstate_monitoring": "on",
+						"nginx2_pstate_ratio":      "1.5",
+					},
+				},
+				Spec: corev1.PodSpec{
+					NodeName: "example-node-1.com",
+					Containers: []corev1.Container{
+						{
+							Name: "nginx1",
+							Resources: corev1.ResourceRequirements{
+								Requests: corev1.ResourceList{
+									corev1.ResourceName("intel.com/l3_cache_ways"): resource.MustParse("2"),
+									corev1.ResourceName(corev1.ResourceCPU):        resource.MustParse("1"),
+									corev1.ResourceName(corev1.ResourceMemory):     resource.MustParse("1G"),
+								},
+								Limits: corev1.ResourceList{
+									corev1.ResourceName("intel.com/l3_cache_ways"): resource.MustParse("2"),
+									corev1.ResourceName(corev1.ResourceCPU):        resource.MustParse("1"),
+									corev1.ResourceName(corev1.ResourceMemory):     resource.MustParse("1G"),
+								},
+							},
+						},
+						{
+							Name: "nginx2",
+							Resources: corev1.ResourceRequirements{
+								Requests: corev1.ResourceList{
+									corev1.ResourceName("intel.com/l3_cache_ways"): resource.MustParse("1"),
+									corev1.ResourceName(corev1.ResourceCPU):        resource.MustParse("1"),
+									corev1.ResourceName(corev1.ResourceMemory):     resource.MustParse("1G"),
+								},
+								Limits: corev1.ResourceList{
+									corev1.ResourceName("intel.com/l3_cache_ways"): resource.MustParse("1"),
+									corev1.ResourceName(corev1.ResourceCPU):        resource.MustParse("1"),
+									corev1.ResourceName(corev1.ResourceMemory):     resource.MustParse("1G"),
+								},
+							},
+						},
+					},
+				},
+				Status: corev1.PodStatus{
+					ContainerStatuses: []corev1.ContainerStatus{
+						{
+							Name:        "nginx1",
+							ContainerID: "7479d8c641a73fced579a3517b6d2def3f0a3a3a7e659f86ce4db61dc9f38",
+						},
+						{
+							Name:        "nginx2",
+							ContainerID: "c70a7a9e1b574fc9b73b74a650d30ab2c94d63da7e38eff98cb91021bec56",
+						},
+					},
+				},
+			},
+			cores: []string{"0,11", "13"},
 			expectedRmdWorkloads: []*intelv1alpha1.RmdWorkload{
 				{
 					ObjectMeta: metav1.ObjectMeta{
@@ -556,10 +759,96 @@ func TestBuildRmdWorkload(t *testing.T) {
 						},
 					},
 				},
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "pod-1-rmd-workload-nginx2",
+						Namespace: "default",
+					},
+					Spec: intelv1alpha1.RmdWorkloadSpec{
+						Nodes:   []string{"example-node-1.com"},
+						CoreIds: []string{"13"},
+						Policy:  "gold",
+						Rdt: intelv1alpha1.Rdt{
+							Cache: intelv1alpha1.Cache{
+								Max: 1,
+								Min: 1,
+							},
+						},
+						Plugins: intelv1alpha1.Plugins{
+							Pstate: intelv1alpha1.Pstate{
+								Monitoring: "on",
+								Ratio:      "1.5",
+							},
+						},
+					},
+				},
 			},
 		},
 		{
-			name: "test case 3 - malformed fields",
+			name: "test case 4 - malformed fields, 1 container",
+			pod: &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "pod-1",
+					Namespace: "default",
+					UID:       "f906a249-ab9d-4180-9afa-4075e2058ac7",
+					Annotations: map[string]string{
+						"policy":                  "gold", // missing container name prefix
+						"nginx1_cache_min":        "5",    // ok
+						"nginx1_state_monitoring": "on",   //should be 'pstate'
+						"nginx1_pstate_ratiox":    "1.5",  //trailing 'x'
+					},
+				},
+				Spec: corev1.PodSpec{
+					NodeName: "example-node-1.com",
+					Containers: []corev1.Container{
+						{
+							Name: "nginx1",
+							Resources: corev1.ResourceRequirements{
+								Requests: corev1.ResourceList{
+									corev1.ResourceName("intel.com/l3_cache_ways"): resource.MustParse("5"),
+									corev1.ResourceName(corev1.ResourceCPU):        resource.MustParse("1"),
+									corev1.ResourceName(corev1.ResourceMemory):     resource.MustParse("1G"),
+								},
+								Limits: corev1.ResourceList{
+									corev1.ResourceName("intel.com/l3_cache_ways"): resource.MustParse("5"),
+									corev1.ResourceName(corev1.ResourceCPU):        resource.MustParse("1"),
+									corev1.ResourceName(corev1.ResourceMemory):     resource.MustParse("1G"),
+								},
+							},
+						},
+					},
+				},
+				Status: corev1.PodStatus{
+					ContainerStatuses: []corev1.ContainerStatus{
+						{
+							Name:        "nginx1",
+							ContainerID: "7479d8c641a73fced579a3517b6d2def3f0a3a3a7e659f86ce4db61dc9f38",
+						},
+					},
+				},
+			},
+			cores: []string{"8-12"},
+			expectedRmdWorkloads: []*intelv1alpha1.RmdWorkload{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "pod-1-rmd-workload-nginx1",
+						Namespace: "default",
+					},
+					Spec: intelv1alpha1.RmdWorkloadSpec{
+						Nodes:   []string{"example-node-1.com"},
+						CoreIds: []string{"8", "9", "10", "11", "12"},
+						Rdt: intelv1alpha1.Rdt{
+							Cache: intelv1alpha1.Cache{
+								Max: 5,
+								Min: 5,
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "test case 5 - malformed fields, 2 containers",
 			pod: &corev1.Pod{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "pod-1",
@@ -570,6 +859,11 @@ func TestBuildRmdWorkload(t *testing.T) {
 						"nginx1_cache_min":        "2",    // ok
 						"nginx1_state_monitoring": "on",   //should be 'pstate'
 						"nginx1_pstate_ratiox":    "1.5",  //trailing 'x'
+
+						"nginx2_policy":           "gold",
+						"nginx2_cache_min":        "1",   // ok
+						"nginx2_state_monitoring": "on",  //should be 'pstate'
+						"nginx2_pstate_ratiox":    "1.5", //trailing 'x'
 					},
 				},
 				Spec: corev1.PodSpec{
@@ -590,6 +884,21 @@ func TestBuildRmdWorkload(t *testing.T) {
 								},
 							},
 						},
+						{
+							Name: "nginx2",
+							Resources: corev1.ResourceRequirements{
+								Requests: corev1.ResourceList{
+									corev1.ResourceName("intel.com/l3_cache_ways"): resource.MustParse("1"),
+									corev1.ResourceName(corev1.ResourceCPU):        resource.MustParse("1"),
+									corev1.ResourceName(corev1.ResourceMemory):     resource.MustParse("1G"),
+								},
+								Limits: corev1.ResourceList{
+									corev1.ResourceName("intel.com/l3_cache_ways"): resource.MustParse("1"),
+									corev1.ResourceName(corev1.ResourceCPU):        resource.MustParse("1"),
+									corev1.ResourceName(corev1.ResourceMemory):     resource.MustParse("1G"),
+								},
+							},
+						},
 					},
 				},
 				Status: corev1.PodStatus{
@@ -598,10 +907,14 @@ func TestBuildRmdWorkload(t *testing.T) {
 							Name:        "nginx1",
 							ContainerID: "7479d8c641a73fced579a3517b6d2def3f0a3a3a7e659f86ce4db61dc9f38",
 						},
+						{
+							Name:        "nginx2",
+							ContainerID: "c70a7a9e1b574fc9b73b74a650d30ab2c94d63da7e38eff98cb91021bec56",
+						},
 					},
 				},
 			},
-			cores: "8-12",
+			cores: []string{"8-12", "14"},
 			expectedRmdWorkloads: []*intelv1alpha1.RmdWorkload{
 				{
 					ObjectMeta: metav1.ObjectMeta{
@@ -619,18 +932,38 @@ func TestBuildRmdWorkload(t *testing.T) {
 						},
 					},
 				},
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "pod-1-rmd-workload-nginx2",
+						Namespace: "default",
+					},
+					Spec: intelv1alpha1.RmdWorkloadSpec{
+						Nodes:   []string{"example-node-1.com"},
+						CoreIds: []string{"14"},
+						Policy:  "gold",
+						Rdt: intelv1alpha1.Rdt{
+							Cache: intelv1alpha1.Cache{
+								Max: 1,
+								Min: 1,
+							},
+						},
+					},
+				},
 			},
 		},
 	}
+
 	for _, tc := range tcases {
-		content := []byte(tc.cores)
 		unifiedCgroupPath = "./test_cgroup/"
 		podUID := string(tc.pod.GetObjectMeta().GetUID())
-		containerID := tc.pod.Status.ContainerStatuses[0].ContainerID
-		dir := createMockCgroupfs(unifiedCgroupPath, podUID, containerID, t)
-		tmpfn := filepath.Join(dir, "cpuset.cpus")
-		if err := ioutil.WriteFile(tmpfn, content, 0666); err != nil {
-			t.Fatalf("error writing to file (%v)", err)
+		for index := range tc.pod.Spec.Containers {
+			content := []byte(tc.cores[index])
+			containerID := tc.pod.Status.ContainerStatuses[index].ContainerID
+			dir := createMockCgroupfs(unifiedCgroupPath, podUID, containerID, t)
+			tmpfn := filepath.Join(dir, "cpuset.cpus")
+			if err := ioutil.WriteFile(tmpfn, content, 0666); err != nil {
+				t.Fatalf("error writing to file (%v)", err)
+			}
 		}
 		defer os.RemoveAll("./test_cgroup")
 
