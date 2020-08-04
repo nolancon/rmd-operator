@@ -219,7 +219,7 @@ func (rc *OperatorRmdClient) GetWorkloads(address string) ([]*rmdtypes.RDTWorkLo
 	return allWorkloads, nil
 }
 
-// Format Workload to rmdtypes.RDTWorkLoad{} as the workloadCR contains unecessary fields which can
+// Format Workload to rmdtypes.RDTWorkLoad{} as the workloadCR contains unnecessary fields which can
 // be problematic if marshalled directly and delivered to RMD.
 func formatWorkload(workloadCR *intelv1alpha1.RmdWorkload) (*rmdtypes.RDTWorkLoad, error) {
 	rdtWorkload := &rmdtypes.RDTWorkLoad{}
