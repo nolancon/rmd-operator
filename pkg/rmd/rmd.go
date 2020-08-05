@@ -214,6 +214,9 @@ func (rc *OperatorRmdClient) GetWorkloads(address string) ([]*rmdtypes.RDTWorkLo
 	}
 	allWorkloads := make([]*rmdtypes.RDTWorkLoad, 0)
 	err = json.Unmarshal([]byte(receivedJSON), &allWorkloads)
+	if err != nil {
+		return nil, err
+	}
 
 	resp.Body.Close()
 	return allWorkloads, nil
