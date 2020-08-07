@@ -284,6 +284,7 @@ The following criteria must be met in order for the operator to succesfully crea
 *  The container must request extended resource `intel.com/l3_cache_ways`. 
 *  The container must also [request exclusive CPUs from CPU Manager](https://kubernetes.io/docs/tasks/administer-cluster/cpu-management-policies/#static-policy).
 *  Pod annotations pertaining to the container requesting cache ways must be prefixed with that container's name. See example and [table](https://github.com/nolancon/rmd-operator/blob/v0.2/README.md#pod-annotaions-naming-convention) below.
+*  The pod name or any container name must **not** contain the substring `-rmd-workload-`.
 
 ### Example: Single Container
 See `samples/pod-guaranteed-cache.yaml`
