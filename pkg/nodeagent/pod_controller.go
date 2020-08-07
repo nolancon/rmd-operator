@@ -124,6 +124,12 @@ func (r *ReconcilePod) Reconcile(request reconcile.Request) (reconcile.Result, e
 		// Error reading the object - requeue the request.
 		return reconcile.Result{}, err
 	}
+	// Pod name should NOT contain "-rmd-workload-" substring. Return with message if found.
+	if strings.Contains(cachePod.GetObjectMeta().GetName(), rmdWorkloadNameConst) {
+		reqLogger.Info("Pod name must NOT contain '-rmd-workload-' substring.", "Workload will not be created for pod", cachePod.GetObjectMeta().GetName())
+		return reconcile.Result{}, nil
+	}
+
 	podNotRunningErr := errors.NewServiceUnavailable("pod not in running phase")
 	if cachePod.Status.Phase != corev1.PodRunning {
 		reqLogger.Info("Pod not running", "pod status:", cachePod.Status.Phase)
@@ -225,6 +231,12 @@ func buildRmdWorkload(pod *corev1.Pod) ([]*intelv1alpha1.RmdWorkload, error) {
 	}
 	rmdWorkloads := make([]*intelv1alpha1.RmdWorkload, 0)
 	for _, container := range containersRequestingCache {
+		// Container name should NOT contain "-rmd-workload-" substring.
+		if strings.Contains(container.Name, rmdWorkloadNameConst) {
+			logger.Info("Container name must NOT contain '-rmd-workload-' substring.", "Workload will not be created for pod", pod.GetObjectMeta().GetName(), "container", container.Name)
+			continue
+		}
+
 		// Ensure container is requesting exclusive cpus
 		if !exclusiveCPUs(pod, &container) {
 			logger.Info("Container is not requesting exclusive cpus")
