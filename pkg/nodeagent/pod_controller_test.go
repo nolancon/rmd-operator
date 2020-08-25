@@ -2,6 +2,7 @@ package nodeagent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"github.com/intel/rmd-operator/pkg/apis"
 	intelv1alpha1 "github.com/intel/rmd-operator/pkg/apis/intel/v1alpha1"
@@ -1110,6 +1111,345 @@ func TestBuildRmdWorkload(t *testing.T) {
 
 	}
 
+}
+
+func TestGetAnnotationInfo(t *testing.T) {
+	tcases := []struct {
+		name          string
+		annotations   map[string]string
+		container     corev1.Container
+		policy        string
+		minCache      int
+		mbaPercentage int
+		mbaMbps       int
+		pstateRatio   string
+		pstateMonitor string
+	}{
+		{
+			name: "test case 1 - no errors, single container containing all annotations",
+			annotations: map[string]string{
+				"nginx1_policy":            "gold",
+				"nginx1_cache_min":         "2",
+				"nginx1_mba_percentage":    "70",
+				"nginx1_mba_mbps":          "100",
+				"nginx1_pstate_ratio":      "1.5",
+				"nginx1_pstate_monitoring": "on",
+			},
+			container: corev1.Container{
+				Name: "nginx1",
+				Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceName("intel.com/l3_cache_ways"): resource.MustParse("2"),
+						corev1.ResourceName(corev1.ResourceCPU):        resource.MustParse("1"),
+						corev1.ResourceName(corev1.ResourceMemory):     resource.MustParse("1G"),
+					},
+					Limits: corev1.ResourceList{
+						corev1.ResourceName("intel.com/l3_cache_ways"): resource.MustParse("2"),
+						corev1.ResourceName(corev1.ResourceCPU):        resource.MustParse("1"),
+						corev1.ResourceName(corev1.ResourceMemory):     resource.MustParse("1G"),
+					},
+				},
+			},
+			policy:        "gold",
+			minCache:      2,
+			mbaPercentage: 70,
+			mbaMbps:       100,
+			pstateRatio:   "1.5",
+			pstateMonitor: "on",
+		},
+		{
+			name: "test case 2 - typos in annotations",
+			annotations: map[string]string{
+				"nginx1_pollicy":        "gold", //policy spelled incorrectly
+				"nginx1_min_cache":      "1",    //min_cache instead of cache_min
+				"nginx1_mba_percent":    "70",   //mba_percent instead of mba_percentage
+				"nginx1_mbs_mbps":       "100",  //mbs instead of mba
+				"nginx1_pstate_ratiox":  "1.5",  //trailing x
+				"nginx1_pstate_monitor": "on",   //pstate_monitor instead of pstate_monitoring
+			},
+			container: corev1.Container{
+				Name: "nginx1",
+				Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceName("intel.com/l3_cache_ways"): resource.MustParse("1"),
+						corev1.ResourceName(corev1.ResourceCPU):        resource.MustParse("1"),
+						corev1.ResourceName(corev1.ResourceMemory):     resource.MustParse("1G"),
+					},
+					Limits: corev1.ResourceList{
+						corev1.ResourceName("intel.com/l3_cache_ways"): resource.MustParse("2"),
+						corev1.ResourceName(corev1.ResourceCPU):        resource.MustParse("1"),
+						corev1.ResourceName(corev1.ResourceMemory):     resource.MustParse("1G"),
+					},
+				},
+			},
+			policy:        "",
+			minCache:      0,
+			mbaPercentage: 0,
+			mbaMbps:       0,
+			pstateRatio:   "",
+			pstateMonitor: "",
+		},
+	}
+	for _, tc := range tcases {
+		policy, minCache, mbaPercentage, mbaMbps, pstateRatio, pstateMonitor := getAnnotationInfo(tc.annotations, tc.container)
+		if policy != tc.policy {
+			t.Errorf("%s: Policy - Failed, Expected: %v, Got: %v", tc.name, tc.policy, policy)
+		}
+		if minCache != tc.minCache {
+			t.Errorf("%s: Minimum Cache - Failed, Expected: %v, Got: %v", tc.name, tc.minCache, minCache)
+		}
+		if mbaPercentage != tc.mbaPercentage {
+			t.Errorf("%s: MBA %% - Failed, Expected: %v, Got: %v", tc.name, tc.mbaPercentage, mbaPercentage)
+		}
+		if mbaMbps != tc.mbaMbps {
+			t.Errorf("%s: MBA Mbps - Failed, Expeccted: %v, Got: %v", tc.name, tc.mbaMbps, mbaMbps)
+		}
+		if pstateRatio != tc.pstateRatio {
+			t.Errorf("%s: Pstate Ratio - Failed, Expected: %v, Got %v", tc.name, tc.pstateRatio, pstateRatio)
+		}
+		if pstateMonitor != tc.pstateMonitor {
+			t.Errorf("%s: Pstate Monitoring - Failed, Expected: %v, Got %v", tc.name, tc.pstateMonitor, pstateMonitor)
+		}
+	}
+}
+
+func TestCheckError(t *testing.T) {
+	tcases := []struct {
+		name           string
+		err            error
+		expectedResult string
+	}{
+		{
+			name:           "test case 1 - error is nil",
+			err:            nil,
+			expectedResult: "",
+		},
+		{
+			name:           "test case 2 - error is not nil",
+			err:            errors.New("Error converting string to int"),
+			expectedResult: "Error converting string to int",
+		},
+	}
+	for _, tc := range tcases {
+		result := checkError(tc.err)
+		if result != tc.expectedResult {
+			t.Errorf("%s: Error does not match expected error", tc.name)
+		}
+	}
+}
+
+func TestGetContainerInfo(t *testing.T) {
+	tcases := []struct {
+		name            string
+		pod             *corev1.Pod
+		container       corev1.Container
+		givenCoreIDs    []string //core IDs provided to function
+		returnedCoreIDs []string //core IDs returned by function in different format
+		maxCache        int
+		rmdWlStatus     error
+		errStatus       error
+	}{
+		{
+			name: "test case 1 - container with no errors",
+			pod: &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "pod-1",
+					Namespace: "default",
+					UID:       "f906a249-ab9d-4180-9afa-4075e2058ac7",
+				},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Name: "nginx1",
+							Resources: corev1.ResourceRequirements{
+								Requests: corev1.ResourceList{
+									corev1.ResourceName("intel.com/l3_cache_ways"): resource.MustParse("1"),
+									corev1.ResourceName(corev1.ResourceCPU):        resource.MustParse("1"),
+									corev1.ResourceName(corev1.ResourceMemory):     resource.MustParse("1G"),
+								},
+								Limits: corev1.ResourceList{
+									corev1.ResourceName("intel.com/l3_cache_ways"): resource.MustParse("1"),
+									corev1.ResourceName(corev1.ResourceCPU):        resource.MustParse("1"),
+									corev1.ResourceName(corev1.ResourceMemory):     resource.MustParse("1G"),
+								},
+							},
+						},
+					},
+				},
+				Status: corev1.PodStatus{
+					ContainerStatuses: []corev1.ContainerStatus{
+						{
+							Name:        "nginx1",
+							ContainerID: "7479d8c641a73fced579a3517b6d2def3f0a3a3a7e659f86ce4db61dc9f38",
+						},
+					},
+				},
+			},
+			container: corev1.Container{
+				Name: "nginx1",
+				Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceName("intel.com/l3_cache_ways"): resource.MustParse("1"),
+						corev1.ResourceName(corev1.ResourceCPU):        resource.MustParse("1"),
+						corev1.ResourceName(corev1.ResourceMemory):     resource.MustParse("1G"),
+					},
+					Limits: corev1.ResourceList{
+						corev1.ResourceName("intel.com/l3_cache_ways"): resource.MustParse("1"),
+						corev1.ResourceName(corev1.ResourceCPU):        resource.MustParse("1"),
+						corev1.ResourceName(corev1.ResourceMemory):     resource.MustParse("1G"),
+					},
+				},
+			},
+			givenCoreIDs:    []string{"1"},
+			returnedCoreIDs: []string{"1"},
+			maxCache:        1,
+			rmdWlStatus:     nil,
+			errStatus:       nil,
+		},
+		{
+			name: "test case 2 - requesting more than one CPU",
+			pod: &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "pod-1",
+					Namespace: "default",
+					UID:       "f906a249-ab9d-4180-9afa-4075e2058ac7",
+				},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Name: "nginx1",
+							Resources: corev1.ResourceRequirements{
+								Requests: corev1.ResourceList{
+									corev1.ResourceName("intel.com/l3_cache_ways"): resource.MustParse("3"),
+									corev1.ResourceName(corev1.ResourceCPU):        resource.MustParse("3"),
+									corev1.ResourceName(corev1.ResourceMemory):     resource.MustParse("1G"),
+								},
+								Limits: corev1.ResourceList{
+									corev1.ResourceName("intel.com/l3_cache_ways"): resource.MustParse("3"),
+									corev1.ResourceName(corev1.ResourceCPU):        resource.MustParse("3"),
+									corev1.ResourceName(corev1.ResourceMemory):     resource.MustParse("1G"),
+								},
+							},
+						},
+					},
+				},
+				Status: corev1.PodStatus{
+					ContainerStatuses: []corev1.ContainerStatus{
+						{
+							Name:        "nginx1",
+							ContainerID: "7479d8c641a73fced579a3517b6d2def3f0a3a3a7e659f86ce4db61dc9f38",
+						},
+					},
+				},
+			},
+			container: corev1.Container{
+				Name: "nginx1",
+				Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceName("intel.com/l3_cache_ways"): resource.MustParse("3"),
+						corev1.ResourceName(corev1.ResourceCPU):        resource.MustParse("3"),
+						corev1.ResourceName(corev1.ResourceMemory):     resource.MustParse("1G"),
+					},
+					Limits: corev1.ResourceList{
+						corev1.ResourceName("intel.com/l3_cache_ways"): resource.MustParse("3"),
+						corev1.ResourceName(corev1.ResourceCPU):        resource.MustParse("3"),
+						corev1.ResourceName(corev1.ResourceMemory):     resource.MustParse("1G"),
+					},
+				},
+			},
+			givenCoreIDs:    []string{"3-5"},
+			returnedCoreIDs: []string{"3", "4", "5"},
+			maxCache:        3,
+			rmdWlStatus:     nil,
+			errStatus:       nil,
+		},
+		{
+			name: "test case 3 - missing pod UID",
+			pod: &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "pod-1",
+					Namespace: "default",
+					//UID:       "f906a249-ab9d-4180-9afa-4075e2058ac7",
+				},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Name: "nginx1",
+							Resources: corev1.ResourceRequirements{
+								Requests: corev1.ResourceList{
+									corev1.ResourceName("intel.com/l3_cache_ways"): resource.MustParse("3"),
+									corev1.ResourceName(corev1.ResourceCPU):        resource.MustParse("3"),
+									corev1.ResourceName(corev1.ResourceMemory):     resource.MustParse("1G"),
+								},
+								Limits: corev1.ResourceList{
+									corev1.ResourceName("intel.com/l3_cache_ways"): resource.MustParse("3"),
+									corev1.ResourceName(corev1.ResourceCPU):        resource.MustParse("3"),
+									corev1.ResourceName(corev1.ResourceMemory):     resource.MustParse("1G"),
+								},
+							},
+						},
+					},
+				},
+				Status: corev1.PodStatus{
+					ContainerStatuses: []corev1.ContainerStatus{
+						{
+							Name:        "nginx1",
+							ContainerID: "7479d8c641a73fced579a3517b6d2def3f0a3a3a7e659f86ce4db61dc9f38",
+						},
+					},
+				},
+			},
+			container: corev1.Container{
+				Name: "nginx1",
+				Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceName("intel.com/l3_cache_ways"): resource.MustParse("3"),
+						corev1.ResourceName(corev1.ResourceCPU):        resource.MustParse("3"),
+						corev1.ResourceName(corev1.ResourceMemory):     resource.MustParse("1G"),
+					},
+					Limits: corev1.ResourceList{
+						corev1.ResourceName("intel.com/l3_cache_ways"): resource.MustParse("3"),
+						corev1.ResourceName(corev1.ResourceCPU):        resource.MustParse("3"),
+						corev1.ResourceName(corev1.ResourceMemory):     resource.MustParse("1G"),
+					},
+				},
+			},
+			givenCoreIDs:    []string{"3-5"},
+			returnedCoreIDs: nil, //podUID need to find coreIDs
+			maxCache:        0,   //function returns 0 for maxCache if podUID is not found
+			rmdWlStatus:     nil,
+			errStatus:       errors.New("pod UID not found"),
+		},
+	}
+	for _, tc := range tcases {
+		unifiedCgroupPath = "./test_cgroup/"
+		podUID := string(tc.pod.GetObjectMeta().GetUID())
+		for index := range tc.pod.Spec.Containers {
+			content := []byte(tc.givenCoreIDs[index])
+			containerID := tc.pod.Status.ContainerStatuses[index].ContainerID
+			dir := createMockCgroupfs(unifiedCgroupPath, podUID, containerID, t)
+			tmpfn := filepath.Join(dir, "cpuset.cpus")
+			if err := ioutil.WriteFile(tmpfn, content, 0666); err != nil {
+				t.Fatalf("error writing to file (%v)", err)
+			}
+
+			coreIDs, maxCache, rmdWlStatus, errStatus := getContainerInfo(tc.pod, tc.container)
+
+			if !reflect.DeepEqual(coreIDs, tc.returnedCoreIDs) {
+				t.Errorf("%s: Core IDs - Failed, Expected: %v, Got: %v.", tc.name, tc.returnedCoreIDs, coreIDs)
+			}
+			if maxCache != tc.maxCache {
+				t.Errorf("%s: Max Cache - Failed, Expected: %v, Got: %v", tc.name, tc.maxCache, maxCache)
+			}
+			if rmdWlStatus != tc.rmdWlStatus {
+				t.Errorf("%s: RMD Workload Status - Failed, Expected: %v, Got: %v", tc.name, tc.rmdWlStatus, rmdWlStatus)
+			}
+			if errStatus != tc.errStatus {
+				t.Errorf("%s: Error Status - Failed, Expected: %v, Got: %v", tc.name, tc.errStatus, errStatus)
+			}
+		}
+		defer os.RemoveAll("./test_cgroup")
+	}
 }
 
 func TestGetContainerRequestingCache(t *testing.T) {
