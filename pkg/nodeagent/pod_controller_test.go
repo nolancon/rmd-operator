@@ -1240,14 +1240,11 @@ func TestCheckError(t *testing.T) {
 
 func TestGetContainerInfo(t *testing.T) {
 	tcases := []struct {
-		name            string
-		pod             *corev1.Pod
-		container       corev1.Container
-		givenCoreIDs    []string //core IDs provided to function
-		returnedCoreIDs []string //core IDs returned by function in different format
-		maxCache        int
-		rmdWlStatus     error
-		errStatus       error
+		name         string
+		pod          *corev1.Pod
+		container    corev1.Container
+		givenCoreIDs []string //core IDs provided to function
+		expectedInfo containerInformation
 	}{
 		{
 			name: "test case 1 - container with no errors",
@@ -1300,11 +1297,13 @@ func TestGetContainerInfo(t *testing.T) {
 					},
 				},
 			},
-			givenCoreIDs:    []string{"1"},
-			returnedCoreIDs: []string{"1"},
-			maxCache:        1,
-			rmdWlStatus:     nil,
-			errStatus:       nil,
+			givenCoreIDs: []string{"1"},
+			expectedInfo: containerInformation{
+				coreIDs:     []string{"1"},
+				maxCache:    1,
+				rmdWlStatus: nil,
+				errStatus:   nil,
+			},
 		},
 		{
 			name: "test case 2 - requesting more than one CPU",
@@ -1357,11 +1356,13 @@ func TestGetContainerInfo(t *testing.T) {
 					},
 				},
 			},
-			givenCoreIDs:    []string{"3-5"},
-			returnedCoreIDs: []string{"3", "4", "5"},
-			maxCache:        3,
-			rmdWlStatus:     nil,
-			errStatus:       nil,
+			givenCoreIDs: []string{"3-5"},
+			expectedInfo: containerInformation{
+				coreIDs:     []string{"3", "4", "5"},
+				maxCache:    3,
+				rmdWlStatus: nil,
+				errStatus:   nil,
+			},
 		},
 		{
 			name: "test case 3 - missing pod UID",
@@ -1369,7 +1370,7 @@ func TestGetContainerInfo(t *testing.T) {
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "pod-1",
 					Namespace: "default",
-					//UID:       "f906a249-ab9d-4180-9afa-4075e2058ac7",
+					//UID:       "f906a249-ab9d-4180-9afa-4075e2058ac7", //commented out to induce error
 				},
 				Spec: corev1.PodSpec{
 					Containers: []corev1.Container{
@@ -1414,11 +1415,13 @@ func TestGetContainerInfo(t *testing.T) {
 					},
 				},
 			},
-			givenCoreIDs:    []string{"3-5"},
-			returnedCoreIDs: nil, //podUID need to find coreIDs
-			maxCache:        0,   //function returns 0 for maxCache if podUID is not found
-			rmdWlStatus:     nil,
-			errStatus:       errors.New("pod UID not found"),
+			givenCoreIDs: []string{"3-5"},
+			expectedInfo: containerInformation{
+				coreIDs:     nil, //podUID need to find coreIDs
+				maxCache:    0,   //function returns 0 for maxCache if podUID is not found
+				rmdWlStatus: nil,
+				errStatus:   errors.New("pod UID not found"),
+			},
 		},
 	}
 	for _, tc := range tcases {
@@ -1433,19 +1436,10 @@ func TestGetContainerInfo(t *testing.T) {
 				t.Fatalf("error writing to file (%v)", err)
 			}
 
-			coreIDs, maxCache, rmdWlStatus, errStatus := getContainerInfo(tc.pod, tc.container)
+			returnedInfo := getContainerInfo(tc.pod, tc.container)
 
-			if !reflect.DeepEqual(coreIDs, tc.returnedCoreIDs) {
-				t.Errorf("%s: Core IDs - Failed, Expected: %v, Got: %v.", tc.name, tc.returnedCoreIDs, coreIDs)
-			}
-			if maxCache != tc.maxCache {
-				t.Errorf("%s: Max Cache - Failed, Expected: %v, Got: %v", tc.name, tc.maxCache, maxCache)
-			}
-			if rmdWlStatus != tc.rmdWlStatus {
-				t.Errorf("%s: RMD Workload Status - Failed, Expected: %v, Got: %v", tc.name, tc.rmdWlStatus, rmdWlStatus)
-			}
-			if errStatus != tc.errStatus {
-				t.Errorf("%s: Error Status - Failed, Expected: %v, Got: %v", tc.name, tc.errStatus, errStatus)
+			if !reflect.DeepEqual(tc.expectedInfo, returnedInfo) {
+				t.Errorf("%s: Failed,\n-Expected:\t%+v,\n-Got:\t\t%+v", tc.name, tc.expectedInfo, returnedInfo)
 			}
 		}
 		defer os.RemoveAll("./test_cgroup")

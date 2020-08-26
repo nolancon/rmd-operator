@@ -47,6 +47,13 @@ var hybridCgroupPath = "/sys/fs/cgroup/unified/"
 
 var log = logf.Log.WithName("controller_pod")
 
+type containerInformation struct {
+	coreIDs     []string
+	maxCache    int
+	rmdWlStatus error
+	errStatus   error
+}
+
 /**
 * USER ACTION REQUIRED: This is a scaffold file intended for the user to modify with their own Controller
 * business logic.  Delete these comments after modifying this file.*
@@ -237,9 +244,9 @@ func buildRmdWorkload(pod *corev1.Pod) ([]*intelv1alpha1.RmdWorkload, error) {
 			continue
 		}
 
-		coreIDs, maxCache, rmdWlStatus, errStatus := getContainerInfo(pod, container) //TODO: alter for returning a struct
-		if rmdWlStatus == nil {
-			return nil, errStatus
+		containerInfo := getContainerInfo(pod, container) //TODO: alter for returning a struct
+		if containerInfo.rmdWlStatus == nil {
+			return nil, containerInfo.errStatus
 		}
 
 		rmdWorkload := &intelv1alpha1.RmdWorkload{}
@@ -257,8 +264,8 @@ func buildRmdWorkload(pod *corev1.Pod) ([]*intelv1alpha1.RmdWorkload, error) {
 
 		rmdWorkload.SetName(rmdWorkloadNamespacedName.Name)
 		rmdWorkload.SetNamespace(rmdWorkloadNamespacedName.Namespace)
-		rmdWorkload.Spec.Rdt.Cache.Max = maxCache
-		rmdWorkload.Spec.CoreIds = coreIDs
+		rmdWorkload.Spec.Rdt.Cache.Max = containerInfo.maxCache
+		rmdWorkload.Spec.CoreIds = containerInfo.coreIDs
 		rmdWorkload.Spec.Nodes = make([]string, 0)
 		rmdWorkload.Spec.Nodes = append(rmdWorkload.Spec.Nodes, pod.Spec.NodeName)
 
@@ -323,50 +330,64 @@ func getAnnotationInfo(workloadData map[string]string, container corev1.Containe
 	return policy, minCache, mbaPercentage, mbaMbps, pstateRatio, pstateMonitoring
 }
 
-func checkError(err error) (result string) {
-	if err != nil {
+func checkError(err error) (result string) { //might remove this function in future
+	if err != nil { //only used 3 times
 		return err.Error()
 	}
 	return ""
 }
 
-func getContainerInfo(pod *corev1.Pod, container corev1.Container)(coreIDs []string, maxCache int, rmdWlStatus error, errStatus error) {
-	/*type containerInformation struct {
-		coreIDs			[]string
-		maxCache		int
-		rmdWlStatus		error
-		 errStatus		error
-	}
-	var containerInfo containerInformation //empty containerInformation struct*/
+func getContainerInfo(pod *corev1.Pod, container corev1.Container) containerInformation {
+	var containerInfo containerInformation //empty containerInformation struct
 
 	logger := log.WithName("buildRmdWorkload")
 	if !exclusiveCPUs(pod, &container) {
 		logger.Info("No container requesting cache found in pod")
-		return nil, 0, nil, nil
+		containerInfo.coreIDs = nil
+		containerInfo.maxCache = 0
+		containerInfo.rmdWlStatus = nil
+		containerInfo.errStatus = nil
+		return containerInfo
 	}
 	podUID := string(pod.GetObjectMeta().GetUID())
 	if podUID == "" {
 		logger.Info("No pod UID found")
-		return nil, 0, nil, errors.NewServiceUnavailable("pod UID not found")
+		containerInfo.coreIDs = nil
+		containerInfo.maxCache = 0
+		containerInfo.rmdWlStatus = nil
+		containerInfo.errStatus = errors.NewServiceUnavailable("pod UID not found")
+		return containerInfo
 	}
 
 	containerID := getContainerID(pod, container.Name)
 	coreIDs, err := readCgroupCpuset(podUID, containerID)
+	containerInfo.coreIDs = coreIDs
 	if err != nil {
 		logger.Error(err, "failed to retrieve cpuset from cgroups")
-		return nil, 0, nil, err
+		containerInfo.coreIDs = nil
+		containerInfo.maxCache = 0
+		containerInfo.rmdWlStatus = nil
+		containerInfo.errStatus = err
+		return containerInfo
 	}
 	if len(coreIDs) == 0 {
 		logger.Info("cpuset not found in cgroups for container")
-		return nil, 0, nil, nil
+		containerInfo.coreIDs = nil
+		containerInfo.maxCache = 0
+		containerInfo.rmdWlStatus = nil
+		containerInfo.errStatus = nil
+		return containerInfo
 	}
 
-	maxCache, err = getMaxCache(&container)
+	containerInfo.maxCache, err = getMaxCache(&container)
 	if err != nil {
-		fmt.Println(err)
-		return nil, 0, nil, err
+		containerInfo.coreIDs = nil
+		containerInfo.maxCache = 0
+		containerInfo.rmdWlStatus = nil
+		containerInfo.errStatus = err
+		return containerInfo
 	}
-	return coreIDs, maxCache, rmdWlStatus, errStatus
+	return containerInfo
 }
 
 func getContainersRequestingCache(pod *corev1.Pod) []corev1.Container {
