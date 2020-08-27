@@ -50,8 +50,6 @@ var log = logf.Log.WithName("controller_pod")
 type containerInformation struct {
 	coreIDs     []string
 	maxCache    int
-	rmdWlStatus error
-	errStatus   error
 }
 
 /**
@@ -244,9 +242,9 @@ func buildRmdWorkload(pod *corev1.Pod) ([]*intelv1alpha1.RmdWorkload, error) {
 			continue
 		}
 
-		containerInfo := getContainerInfo(pod, container) //TODO: alter for returning a struct
-		if containerInfo.rmdWlStatus == nil {
-			return nil, containerInfo.errStatus
+		containerInfo, err := getContainerInfo(pod, container) 
+		if err != nil {
+			return nil, err
 		}
 
 		rmdWorkload := &intelv1alpha1.RmdWorkload{}
@@ -269,31 +267,31 @@ func buildRmdWorkload(pod *corev1.Pod) ([]*intelv1alpha1.RmdWorkload, error) {
 		rmdWorkload.Spec.Nodes = make([]string, 0)
 		rmdWorkload.Spec.Nodes = append(rmdWorkload.Spec.Nodes, pod.Spec.NodeName)
 
-		workloadData := pod.GetObjectMeta().GetAnnotations()
-		policy, minCache, mbaPercentage, mbaMbps, pstateRatio, pstateMonitoring := getAnnotationInfo(workloadData, container)
+		getAnnotationInfo(rmdWorkload, pod, container.Name)
 
-		rmdWorkload.Spec.Policy = policy
+		/*rmdWorkload.Spec.Policy = policy
 		rmdWorkload.Spec.Rdt.Cache.Min = minCache
 		rmdWorkload.Spec.Rdt.Mba.Percentage = mbaPercentage
 		rmdWorkload.Spec.Rdt.Mba.Mbps = mbaMbps
 		rmdWorkload.Spec.Plugins.Pstate.Ratio = pstateRatio
 		rmdWorkload.Spec.Plugins.Pstate.Monitoring = pstateMonitoring
-
+		*/
 		rmdWorkloads = append(rmdWorkloads, rmdWorkload)
 	}
 	return rmdWorkloads, nil
 }
 
-func getAnnotationInfo(workloadData map[string]string, container corev1.Container) (policy string, minCache int, mbaPercentage int, mbaMbps int, pstateRatio string, pstateMonitoring string) {
+func getAnnotationInfo(rmdWorkload *intelv1alpha1.RmdWorkload, pod *corev1.Pod, containerName string)  {
 	var minCacheStr, mbaPercentStr, mbaMbpsStr string
+	workloadData := pod.GetObjectMeta().GetAnnotations()
 	for field, data := range workloadData {
-		if !strings.HasPrefix(field, container.Name) {
+		if !strings.HasPrefix(field, containerName) {
 			continue
 		}
 		switch {
 		case strings.HasSuffix(field, policyConst):
 			if data != "" {
-				policy = data
+				rmdWorkload.Spec.Policy = data
 			}
 		case strings.HasSuffix(field, cacheMinConst):
 			if data != "" {
@@ -309,54 +307,43 @@ func getAnnotationInfo(workloadData map[string]string, container corev1.Containe
 			}
 		case strings.HasSuffix(field, pstateRatioConst):
 			if data != "" {
-				pstateRatio = data
+				rmdWorkload.Spec.Plugins.Pstate.Ratio = data
 			}
 		case strings.HasSuffix(field, pstateMonitoringConst):
 			if data != "" {
-				pstateMonitoring = data
+				rmdWorkload.Spec.Plugins.Pstate.Monitoring = data
 			}
 		}
-
 	}
-	minCache, err := strconv.Atoi(minCacheStr)
-	checkError(err)
+	var err error
+	rmdWorkload.Spec.Rdt.Cache.Min, err = strconv.Atoi(minCacheStr)
+	if err != nil {
+		fmt.Println(err)
+	}
 
-	mbaPercentage, err = strconv.Atoi(mbaPercentStr)
-	checkError(err)
+	rmdWorkload.Spec.Rdt.Mba.Percentage, err = strconv.Atoi(mbaPercentStr)
+	if err != nil {
+		fmt.Println(err)
+	}
 
-	mbaMbps, err = strconv.Atoi(mbaMbpsStr)
-	checkError(err)
-
-	return policy, minCache, mbaPercentage, mbaMbps, pstateRatio, pstateMonitoring
+	rmdWorkload.Spec.Rdt.Mba.Mbps, err = strconv.Atoi(mbaMbpsStr)
+	if err != nil {
+		fmt.Println(err)
+	}
 }
 
-func checkError(err error) (result string) { //might remove this function in future
-	if err != nil { //only used 3 times
-		return err.Error()
-	}
-	return ""
-}
-
-func getContainerInfo(pod *corev1.Pod, container corev1.Container) containerInformation {
+func getContainerInfo(pod *corev1.Pod, container corev1.Container) (containerInformation, error) {
 	var containerInfo containerInformation //empty containerInformation struct
 
 	logger := log.WithName("buildRmdWorkload")
 	if !exclusiveCPUs(pod, &container) {
 		logger.Info("No container requesting cache found in pod")
-		containerInfo.coreIDs = nil
-		containerInfo.maxCache = 0
-		containerInfo.rmdWlStatus = nil
-		containerInfo.errStatus = nil
-		return containerInfo
+		return containerInformation{}, nil
 	}
 	podUID := string(pod.GetObjectMeta().GetUID())
 	if podUID == "" {
 		logger.Info("No pod UID found")
-		containerInfo.coreIDs = nil
-		containerInfo.maxCache = 0
-		containerInfo.rmdWlStatus = nil
-		containerInfo.errStatus = errors.NewServiceUnavailable("pod UID not found")
-		return containerInfo
+		return containerInformation{}, errors.NewServiceUnavailable("pod UID not found")
 	}
 
 	containerID := getContainerID(pod, container.Name)
@@ -364,30 +351,18 @@ func getContainerInfo(pod *corev1.Pod, container corev1.Container) containerInfo
 	containerInfo.coreIDs = coreIDs
 	if err != nil {
 		logger.Error(err, "failed to retrieve cpuset from cgroups")
-		containerInfo.coreIDs = nil
-		containerInfo.maxCache = 0
-		containerInfo.rmdWlStatus = nil
-		containerInfo.errStatus = err
-		return containerInfo
+		return containerInformation{}, err
 	}
 	if len(coreIDs) == 0 {
 		logger.Info("cpuset not found in cgroups for container")
-		containerInfo.coreIDs = nil
-		containerInfo.maxCache = 0
-		containerInfo.rmdWlStatus = nil
-		containerInfo.errStatus = nil
-		return containerInfo
+		return containerInformation{}, nil
 	}
 
 	containerInfo.maxCache, err = getMaxCache(&container)
 	if err != nil {
-		containerInfo.coreIDs = nil
-		containerInfo.maxCache = 0
-		containerInfo.rmdWlStatus = nil
-		containerInfo.errStatus = err
-		return containerInfo
+		return containerInformation{}, err
 	}
-	return containerInfo
+	return containerInfo, nil
 }
 
 func getContainersRequestingCache(pod *corev1.Pod) []corev1.Container {

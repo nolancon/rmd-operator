@@ -1213,31 +1213,6 @@ func TestGetAnnotationInfo(t *testing.T) {
 	}
 }
 
-func TestCheckError(t *testing.T) {
-	tcases := []struct {
-		name           string
-		err            error
-		expectedResult string
-	}{
-		{
-			name:           "test case 1 - error is nil",
-			err:            nil,
-			expectedResult: "",
-		},
-		{
-			name:           "test case 2 - error is not nil",
-			err:            errors.New("Error converting string to int"),
-			expectedResult: "Error converting string to int",
-		},
-	}
-	for _, tc := range tcases {
-		result := checkError(tc.err)
-		if result != tc.expectedResult {
-			t.Errorf("%s: Error does not match expected error", tc.name)
-		}
-	}
-}
-
 func TestGetContainerInfo(t *testing.T) {
 	tcases := []struct {
 		name         string
