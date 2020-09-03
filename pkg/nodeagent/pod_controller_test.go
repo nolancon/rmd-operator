@@ -2,7 +2,7 @@ package nodeagent
 
 import (
 	"context"
-	"errors"
+	//"errors"
 	"fmt"
 	"github.com/intel/rmd-operator/pkg/apis"
 	intelv1alpha1 "github.com/intel/rmd-operator/pkg/apis/intel/v1alpha1"
@@ -1113,7 +1113,7 @@ func TestBuildRmdWorkload(t *testing.T) {
 
 }
 
-func TestGetAnnotationInfo(t *testing.T) {
+/*func TestGetAnnotationInfo(t *testing.T) {
 	tcases := []struct {
 		name          string
 		annotations   map[string]string
@@ -1211,15 +1211,16 @@ func TestGetAnnotationInfo(t *testing.T) {
 			t.Errorf("%s: Pstate Monitoring - Failed, Expected: %v, Got %v", tc.name, tc.pstateMonitor, pstateMonitor)
 		}
 	}
-}
+}*/
 
 func TestGetContainerInfo(t *testing.T) {
 	tcases := []struct {
-		name         string
-		pod          *corev1.Pod
-		container    corev1.Container
-		givenCoreIDs []string //core IDs provided to function
-		expectedInfo containerInformation
+		name          string
+		pod           *corev1.Pod
+		container     corev1.Container
+		givenCoreIDs  []string //core IDs provided to function
+		expectedInfo  containerInformation
+		expectedError bool
 	}{
 		{
 			name: "test case 1 - container with no errors",
@@ -1274,11 +1275,10 @@ func TestGetContainerInfo(t *testing.T) {
 			},
 			givenCoreIDs: []string{"1"},
 			expectedInfo: containerInformation{
-				coreIDs:     []string{"1"},
-				maxCache:    1,
-				rmdWlStatus: nil,
-				errStatus:   nil,
+				coreIDs:  []string{"1"},
+				maxCache: 1,
 			},
+			expectedError: false,
 		},
 		{
 			name: "test case 2 - requesting more than one CPU",
@@ -1333,19 +1333,75 @@ func TestGetContainerInfo(t *testing.T) {
 			},
 			givenCoreIDs: []string{"3-5"},
 			expectedInfo: containerInformation{
-				coreIDs:     []string{"3", "4", "5"},
-				maxCache:    3,
-				rmdWlStatus: nil,
-				errStatus:   nil,
+				coreIDs:  []string{"3", "4", "5"},
+				maxCache: 3,
 			},
+			expectedError: false, //no error expected
 		},
 		{
-			name: "test case 3 - missing pod UID",
+			name: "test case 3 - Container QoS Class not guaranteed",
 			pod: &corev1.Pod{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "pod-1",
 					Namespace: "default",
-					//UID:       "f906a249-ab9d-4180-9afa-4075e2058ac7", //commented out to induce error
+					UID:       "f906a249-ab9d-4180-9afa-4075e2058ac7",
+				},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Name: "nginx1",
+							Resources: corev1.ResourceRequirements{
+								Requests: corev1.ResourceList{
+									corev1.ResourceName("intel.com/l3_cache_ways"): resource.MustParse("3"),
+									corev1.ResourceName(corev1.ResourceCPU):        resource.MustParse("3"),
+									corev1.ResourceName(corev1.ResourceMemory):     resource.MustParse("1G"),
+								},
+								Limits: corev1.ResourceList{
+									corev1.ResourceName("intel.com/l3_cache_ways"): resource.MustParse("3"),
+									corev1.ResourceName(corev1.ResourceCPU):        resource.MustParse("3"),
+									corev1.ResourceName(corev1.ResourceMemory):     resource.MustParse("2G"),
+								},
+							},
+						},
+					},
+				},
+				Status: corev1.PodStatus{
+					ContainerStatuses: []corev1.ContainerStatus{
+						{
+							Name:        "nginx1",
+							ContainerID: "7479d8c641a73fced579a3517b6d2def3f0a3a3a7e659f86ce4db61dc9f38",
+						},
+					},
+				},
+			},
+			container: corev1.Container{
+				Name: "nginx1",
+				Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceName("intel.com/l3_cache_ways"): resource.MustParse("3"),
+						corev1.ResourceName(corev1.ResourceCPU):        resource.MustParse("3"),
+						corev1.ResourceName(corev1.ResourceMemory):     resource.MustParse("1G"),
+					},
+					Limits: corev1.ResourceList{
+						corev1.ResourceName("intel.com/l3_cache_ways"): resource.MustParse("3"),
+						corev1.ResourceName(corev1.ResourceCPU):        resource.MustParse("3"),
+						corev1.ResourceName(corev1.ResourceMemory):     resource.MustParse("2G"),
+					},
+				},
+			},
+			givenCoreIDs: []string{"3-5"},
+			expectedInfo: containerInformation{
+				coreIDs:  nil,
+				maxCache: 0,
+			},
+			expectedError: false, //No containers requesting cache doesn't cause an error
+		},
+		{
+			name: "test case 4 - missing pod UID",
+			pod: &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "pod-1",
+					Namespace: "default",
 				},
 				Spec: corev1.PodSpec{
 					Containers: []corev1.Container{
@@ -1392,11 +1448,126 @@ func TestGetContainerInfo(t *testing.T) {
 			},
 			givenCoreIDs: []string{"3-5"},
 			expectedInfo: containerInformation{
-				coreIDs:     nil, //podUID need to find coreIDs
-				maxCache:    0,   //function returns 0 for maxCache if podUID is not found
-				rmdWlStatus: nil,
-				errStatus:   errors.New("pod UID not found"),
+				coreIDs:  nil, //podUID need to find coreIDs
+				maxCache: 0,   //function returns 0 for maxCache if podUID is not found
 			},
+			expectedError: true,
+		},
+		{
+			name: "test case 4 - CPU Value * 1000 not equal to CPU millivalue",
+			pod: &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "pod-1",
+					Namespace: "default",
+					UID:       "f906a249-ab9d-4180-9afa-4075e2058ac7",
+				},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Name: "nginx1",
+							Resources: corev1.ResourceRequirements{
+								Requests: corev1.ResourceList{
+									corev1.ResourceName("intel.com/l3_cache_ways"): resource.MustParse("1.76"),
+									corev1.ResourceName(corev1.ResourceCPU):        resource.MustParse("1.76"),
+									corev1.ResourceName(corev1.ResourceMemory):     resource.MustParse("1G"),
+								},
+								Limits: corev1.ResourceList{
+									corev1.ResourceName("intel.com/l3_cache_ways"): resource.MustParse("1.76"),
+									corev1.ResourceName(corev1.ResourceCPU):        resource.MustParse("1.76"),
+									corev1.ResourceName(corev1.ResourceMemory):     resource.MustParse("1G"),
+								},
+							},
+						},
+					},
+				},
+				Status: corev1.PodStatus{
+					ContainerStatuses: []corev1.ContainerStatus{
+						{
+							Name:        "nginx1",
+							ContainerID: "7479d8c641a73fced579a3517b6d2def3f0a3a3a7e659f86ce4db61dc9f38",
+						},
+					},
+				},
+			},
+			container: corev1.Container{
+				Name: "nginx1",
+				Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceName("intel.com/l3_cache_ways"): resource.MustParse("1.76"),
+						corev1.ResourceName(corev1.ResourceCPU):        resource.MustParse("1.76"),
+						corev1.ResourceName(corev1.ResourceMemory):     resource.MustParse("1G"),
+					},
+					Limits: corev1.ResourceList{
+						corev1.ResourceName("intel.com/l3_cache_ways"): resource.MustParse("1.76"),
+						corev1.ResourceName(corev1.ResourceCPU):        resource.MustParse("1.76"),
+						corev1.ResourceName(corev1.ResourceMemory):     resource.MustParse("1G"),
+					},
+				},
+			},
+			givenCoreIDs: []string{"4,5"},
+			expectedInfo: containerInformation{
+				coreIDs:  nil,
+				maxCache: 0,
+			},
+			expectedError: false, // exclusiveCPUs() doesn't cause an error
+		},
+		{
+			name: "test case 5 - container not requesting l3 cache",
+			pod: &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "pod-1",
+					Namespace: "default",
+					UID:       "f906a249-ab9d-4180-9afa-4075e2058ac7",
+				},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Name: "nginx1",
+							Resources: corev1.ResourceRequirements{
+								Requests: corev1.ResourceList{
+									corev1.ResourceName("intel.com/l2_cache_ways"): resource.MustParse("2"), //l2 instead of l3
+									corev1.ResourceName(corev1.ResourceCPU):        resource.MustParse("2"),
+									corev1.ResourceName(corev1.ResourceMemory):     resource.MustParse("1G"),
+								},
+								Limits: corev1.ResourceList{
+									corev1.ResourceName("intel.com/l2_cache_ways"): resource.MustParse("2"), //l2 instead of l3
+									corev1.ResourceName(corev1.ResourceCPU):        resource.MustParse("2"),
+									corev1.ResourceName(corev1.ResourceMemory):     resource.MustParse("1G"),
+								},
+							},
+						},
+					},
+				},
+				Status: corev1.PodStatus{
+					ContainerStatuses: []corev1.ContainerStatus{
+						{
+							Name:        "nginx1",
+							ContainerID: "7479d8c641a73fced579a3517b6d2def3f0a3a3a7e659f86ce4db61dc9f38",
+						},
+					},
+				},
+			},
+			container: corev1.Container{
+				Name: "nginx1",
+				Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceName("intel.com/l2_cache_ways"): resource.MustParse("2"),
+						corev1.ResourceName(corev1.ResourceCPU):        resource.MustParse("2"),
+						corev1.ResourceName(corev1.ResourceMemory):     resource.MustParse("1G"),
+					},
+					Limits: corev1.ResourceList{
+						corev1.ResourceName("intel.com/l2_cache_ways"): resource.MustParse("2"),
+						corev1.ResourceName(corev1.ResourceCPU):        resource.MustParse("2"),
+						corev1.ResourceName(corev1.ResourceMemory):     resource.MustParse("1G"),
+					},
+				},
+			},
+			givenCoreIDs: []string{"4,5"},
+			expectedInfo: containerInformation{
+				coreIDs:  []string{"4", "5"}, //coreIDs not affected
+				maxCache: 0,
+			},
+			expectedError: false,
 		},
 	}
 	for _, tc := range tcases {
@@ -1411,8 +1582,14 @@ func TestGetContainerInfo(t *testing.T) {
 				t.Fatalf("error writing to file (%v)", err)
 			}
 
-			returnedInfo := getContainerInfo(tc.pod, tc.container)
-
+			returnedInfo, err := getContainerInfo(tc.pod, tc.container)
+			functionFailed := false
+			if err != nil {
+				functionFailed = true
+			}
+			if functionFailed != tc.expectedError {
+				t.Errorf("%s: Failed, Error Expected: %v, Error Gotten: %v", tc.name, tc.expectedError, functionFailed)
+			}
 			if !reflect.DeepEqual(tc.expectedInfo, returnedInfo) {
 				t.Errorf("%s: Failed,\n-Expected:\t%+v,\n-Got:\t\t%+v", tc.name, tc.expectedInfo, returnedInfo)
 			}

@@ -48,8 +48,8 @@ var hybridCgroupPath = "/sys/fs/cgroup/unified/"
 var log = logf.Log.WithName("controller_pod")
 
 type containerInformation struct {
-	coreIDs     []string
-	maxCache    int
+	coreIDs  []string
+	maxCache int
 }
 
 /**
@@ -242,7 +242,7 @@ func buildRmdWorkload(pod *corev1.Pod) ([]*intelv1alpha1.RmdWorkload, error) {
 			continue
 		}
 
-		containerInfo, err := getContainerInfo(pod, container) 
+		containerInfo, err := getContainerInfo(pod, container)
 		if err != nil {
 			return nil, err
 		}
@@ -267,22 +267,15 @@ func buildRmdWorkload(pod *corev1.Pod) ([]*intelv1alpha1.RmdWorkload, error) {
 		rmdWorkload.Spec.Nodes = make([]string, 0)
 		rmdWorkload.Spec.Nodes = append(rmdWorkload.Spec.Nodes, pod.Spec.NodeName)
 
-		getAnnotationInfo(rmdWorkload, pod, container.Name)
+		getAnnotationInfo(rmdWorkload, pod, container.Name) //Changes workload in getAnnotationInfo()
 
-		/*rmdWorkload.Spec.Policy = policy
-		rmdWorkload.Spec.Rdt.Cache.Min = minCache
-		rmdWorkload.Spec.Rdt.Mba.Percentage = mbaPercentage
-		rmdWorkload.Spec.Rdt.Mba.Mbps = mbaMbps
-		rmdWorkload.Spec.Plugins.Pstate.Ratio = pstateRatio
-		rmdWorkload.Spec.Plugins.Pstate.Monitoring = pstateMonitoring
-		*/
 		rmdWorkloads = append(rmdWorkloads, rmdWorkload)
 	}
 	return rmdWorkloads, nil
 }
 
-func getAnnotationInfo(rmdWorkload *intelv1alpha1.RmdWorkload, pod *corev1.Pod, containerName string)  {
-	var minCacheStr, mbaPercentStr, mbaMbpsStr string
+func getAnnotationInfo(rmdWorkload *intelv1alpha1.RmdWorkload, pod *corev1.Pod, containerName string) {
+	var minCacheStr, mbaPercentStr, mbaMbpsStr string = "0", "0", "0" //Ensures strconv.Atoi() doesn't receive an empty string
 	workloadData := pod.GetObjectMeta().GetAnnotations()
 	for field, data := range workloadData {
 		if !strings.HasPrefix(field, containerName) {
