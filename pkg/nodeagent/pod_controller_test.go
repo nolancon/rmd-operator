@@ -1113,105 +1113,140 @@ func TestBuildRmdWorkload(t *testing.T) {
 
 }
 
-/*func TestGetAnnotationInfo(t *testing.T) {
+func TestGetAnnotationInfo(t *testing.T) {
 	tcases := []struct {
-		name          string
-		annotations   map[string]string
-		container     corev1.Container
-		policy        string
-		minCache      int
-		mbaPercentage int
-		mbaMbps       int
-		pstateRatio   string
-		pstateMonitor string
+		name             string
+		rmdWorkload      *intelv1alpha1.RmdWorkload
+		pod              *corev1.Pod
+		containerName    string
+		expectedWorkload *intelv1alpha1.RmdWorkload
 	}{
 		{
-			name: "test case 1 - no errors, single container containing all annotations",
-			annotations: map[string]string{
-				"nginx1_policy":            "gold",
-				"nginx1_cache_min":         "2",
-				"nginx1_mba_percentage":    "70",
-				"nginx1_mba_mbps":          "100",
-				"nginx1_pstate_ratio":      "1.5",
-				"nginx1_pstate_monitoring": "on",
-			},
-			container: corev1.Container{
-				Name: "nginx1",
-				Resources: corev1.ResourceRequirements{
-					Requests: corev1.ResourceList{
-						corev1.ResourceName("intel.com/l3_cache_ways"): resource.MustParse("2"),
-						corev1.ResourceName(corev1.ResourceCPU):        resource.MustParse("1"),
-						corev1.ResourceName(corev1.ResourceMemory):     resource.MustParse("1G"),
+			name:        "test case 1 - no errors, single container containing all annotations",
+			rmdWorkload: &intelv1alpha1.RmdWorkload{},
+			pod: &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "pod-1",
+					Namespace: "default",
+					UID:       "f906a249-ab9d-4180-9afa-4075e2058ac7",
+					Annotations: map[string]string{
+						"nginx1_policy":            "gold",
+						"nginx1_cache_min":         "2",
+						"nginx1_mba_percentage":    "70",
+						"nginx1_mba_mbps":          "100",
+						"nginx1_pstate_ratio":      "1.5",
+						"nginx1_pstate_monitoring": "on",
 					},
-					Limits: corev1.ResourceList{
-						corev1.ResourceName("intel.com/l3_cache_ways"): resource.MustParse("2"),
-						corev1.ResourceName(corev1.ResourceCPU):        resource.MustParse("1"),
-						corev1.ResourceName(corev1.ResourceMemory):     resource.MustParse("1G"),
+				},
+				Spec: corev1.PodSpec{
+					NodeName: "example-node-1.com",
+					Containers: []corev1.Container{
+						{
+							Name: "nginx1",
+							Resources: corev1.ResourceRequirements{
+								Requests: corev1.ResourceList{
+									corev1.ResourceName("intel.com/l3_cache_ways"): resource.MustParse("2"),
+									corev1.ResourceName(corev1.ResourceCPU):        resource.MustParse("2"),
+									corev1.ResourceName(corev1.ResourceMemory):     resource.MustParse("1G"),
+								},
+								Limits: corev1.ResourceList{
+									corev1.ResourceName("intel.com/l3_cache_ways"): resource.MustParse("2"),
+									corev1.ResourceName(corev1.ResourceCPU):        resource.MustParse("2"),
+									corev1.ResourceName(corev1.ResourceMemory):     resource.MustParse("1G"),
+								},
+							},
+						},
+					},
+				},
+				Status: corev1.PodStatus{
+					ContainerStatuses: []corev1.ContainerStatus{
+						{
+							Name:        "nginx1",
+							ContainerID: "7479d8c641a73fced579a3517b6d2def3f0a3a3a7e659f86ce4db61dc9f38",
+						},
 					},
 				},
 			},
-			policy:        "gold",
-			minCache:      2,
-			mbaPercentage: 70,
-			mbaMbps:       100,
-			pstateRatio:   "1.5",
-			pstateMonitor: "on",
+			containerName: "nginx1",
+			expectedWorkload: &intelv1alpha1.RmdWorkload{
+				Spec: intelv1alpha1.RmdWorkloadSpec{
+					Policy: "gold",
+					Rdt: intelv1alpha1.Rdt{
+						Cache: intelv1alpha1.Cache{
+							Min: 2,
+						},
+						Mba: intelv1alpha1.Mba{
+							Percentage: 70,
+							Mbps:       100,
+						},
+					},
+					Plugins: intelv1alpha1.Plugins{
+						Pstate: intelv1alpha1.Pstate{
+							Ratio:      "1.5",
+							Monitoring: "on",
+						},
+					},
+				},
+			},
 		},
 		{
-			name: "test case 2 - typos in annotations",
-			annotations: map[string]string{
-				"nginx1_pollicy":        "gold", //policy spelled incorrectly
-				"nginx1_min_cache":      "1",    //min_cache instead of cache_min
-				"nginx1_mba_percent":    "70",   //mba_percent instead of mba_percentage
-				"nginx1_mbs_mbps":       "100",  //mbs instead of mba
-				"nginx1_pstate_ratiox":  "1.5",  //trailing x
-				"nginx1_pstate_monitor": "on",   //pstate_monitor instead of pstate_monitoring
-			},
-			container: corev1.Container{
-				Name: "nginx1",
-				Resources: corev1.ResourceRequirements{
-					Requests: corev1.ResourceList{
-						corev1.ResourceName("intel.com/l3_cache_ways"): resource.MustParse("1"),
-						corev1.ResourceName(corev1.ResourceCPU):        resource.MustParse("1"),
-						corev1.ResourceName(corev1.ResourceMemory):     resource.MustParse("1G"),
+			name:        "test case 2 - typos in annotations",
+			rmdWorkload: &intelv1alpha1.RmdWorkload{},
+			pod: &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "pod-1",
+					Namespace: "default",
+					UID:       "f906a249-ab9d-4180-9afa-4075e2058ac7",
+					Annotations: map[string]string{
+						"nginx1_pollicy":        "gold", //policy mispelled
+						"nginx1_min_cache":      "2",    //min_cache instead of cache_min
+						"nginx1_mba_percent":    "70",   //mba_percentage instead of mba_percentage
+						"nginx1_mbs_mbps":       "100",  //mbs instead of mba
+						"nginx1_pstate_ratiox":  "1.5",  //trailing 'x'
+						"nginx1_pstate_monitor": "on",   //pstate_monitor instead of pstate_monitoring
 					},
-					Limits: corev1.ResourceList{
-						corev1.ResourceName("intel.com/l3_cache_ways"): resource.MustParse("2"),
-						corev1.ResourceName(corev1.ResourceCPU):        resource.MustParse("1"),
-						corev1.ResourceName(corev1.ResourceMemory):     resource.MustParse("1G"),
+				},
+				Spec: corev1.PodSpec{
+					NodeName: "example-node-1.com",
+					Containers: []corev1.Container{
+						{
+							Name: "nginx1",
+							Resources: corev1.ResourceRequirements{
+								Requests: corev1.ResourceList{
+									corev1.ResourceName("intel.com/l3_cache_ways"): resource.MustParse("2"),
+									corev1.ResourceName(corev1.ResourceCPU):        resource.MustParse("2"),
+									corev1.ResourceName(corev1.ResourceMemory):     resource.MustParse("1G"),
+								},
+								Limits: corev1.ResourceList{
+									corev1.ResourceName("intel.com/l3_cache_ways"): resource.MustParse("2"),
+									corev1.ResourceName(corev1.ResourceCPU):        resource.MustParse("2"),
+									corev1.ResourceName(corev1.ResourceMemory):     resource.MustParse("1G"),
+								},
+							},
+						},
+					},
+				},
+				Status: corev1.PodStatus{
+					ContainerStatuses: []corev1.ContainerStatus{
+						{
+							Name:        "nginx1",
+							ContainerID: "7479d8c641a73fced579a3517b6d2def3f0a3a3a7e659f86ce4db61dc9f38",
+						},
 					},
 				},
 			},
-			policy:        "",
-			minCache:      0,
-			mbaPercentage: 0,
-			mbaMbps:       0,
-			pstateRatio:   "",
-			pstateMonitor: "",
+			containerName:    "nginx1",
+			expectedWorkload: &intelv1alpha1.RmdWorkload{},
 		},
 	}
 	for _, tc := range tcases {
-		policy, minCache, mbaPercentage, mbaMbps, pstateRatio, pstateMonitor := getAnnotationInfo(tc.annotations, tc.container)
-		if policy != tc.policy {
-			t.Errorf("%s: Policy - Failed, Expected: %v, Got: %v", tc.name, tc.policy, policy)
-		}
-		if minCache != tc.minCache {
-			t.Errorf("%s: Minimum Cache - Failed, Expected: %v, Got: %v", tc.name, tc.minCache, minCache)
-		}
-		if mbaPercentage != tc.mbaPercentage {
-			t.Errorf("%s: MBA %% - Failed, Expected: %v, Got: %v", tc.name, tc.mbaPercentage, mbaPercentage)
-		}
-		if mbaMbps != tc.mbaMbps {
-			t.Errorf("%s: MBA Mbps - Failed, Expeccted: %v, Got: %v", tc.name, tc.mbaMbps, mbaMbps)
-		}
-		if pstateRatio != tc.pstateRatio {
-			t.Errorf("%s: Pstate Ratio - Failed, Expected: %v, Got %v", tc.name, tc.pstateRatio, pstateRatio)
-		}
-		if pstateMonitor != tc.pstateMonitor {
-			t.Errorf("%s: Pstate Monitoring - Failed, Expected: %v, Got %v", tc.name, tc.pstateMonitor, pstateMonitor)
+		getAnnotationInfo(tc.rmdWorkload, tc.pod, tc.containerName)
+
+		if !reflect.DeepEqual(tc.rmdWorkload, tc.expectedWorkload) {
+			t.Errorf("TestGetAnnotationInfo() failed. Expected: %v, Got: %v\n", tc.expectedWorkload, tc.rmdWorkload)
 		}
 	}
-}*/
+}
 
 func TestGetContainerInfo(t *testing.T) {
 	tcases := []struct {
