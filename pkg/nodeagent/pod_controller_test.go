@@ -2,7 +2,6 @@ package nodeagent
 
 import (
 	"context"
-	//"errors"
 	"fmt"
 	"github.com/intel/rmd-operator/pkg/apis"
 	intelv1alpha1 "github.com/intel/rmd-operator/pkg/apis/intel/v1alpha1"
@@ -1198,7 +1197,7 @@ func TestGetAnnotationInfo(t *testing.T) {
 					Namespace: "default",
 					UID:       "f906a249-ab9d-4180-9afa-4075e2058ac7",
 					Annotations: map[string]string{
-						"nginx1_pollicy":        "gold", //policy mispelled
+						"nginx1_pollicy":        "gold", //policy misspelled
 						"nginx1_min_cache":      "2",    //min_cache instead of cache_min
 						"nginx1_mba_percent":    "70",   //mba_percentage instead of mba_percentage
 						"nginx1_mbs_mbps":       "100",  //mbs instead of mba
@@ -1238,12 +1237,285 @@ func TestGetAnnotationInfo(t *testing.T) {
 			containerName:    "nginx1",
 			expectedWorkload: &intelv1alpha1.RmdWorkload{},
 		},
+		{
+			name:        "test case 3 - empty string for policy annotation",
+			rmdWorkload: &intelv1alpha1.RmdWorkload{},
+			pod: &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "pod-1",
+					Namespace: "default",
+					UID:       "f906a249-ab9d-4180-9afa-4075e2058ac7",
+					Annotations: map[string]string{
+						"nginx1_policy":         "",
+						"nginx1_cache_min":      "2",
+						"nginx1_mba_percentage": "70",
+						"nginx1_mba_mbps":       "100",
+					},
+				},
+				Spec: corev1.PodSpec{
+					NodeName: "example-node-1.com",
+					Containers: []corev1.Container{
+						{
+							Name: "nginx1",
+							Resources: corev1.ResourceRequirements{
+								Requests: corev1.ResourceList{
+									corev1.ResourceName("intel.com/l3_cache_ways"): resource.MustParse("2"),
+									corev1.ResourceName(corev1.ResourceCPU):        resource.MustParse("2"),
+									corev1.ResourceName(corev1.ResourceMemory):     resource.MustParse("1G"),
+								},
+								Limits: corev1.ResourceList{
+									corev1.ResourceName("intel.com/l3_cache_ways"): resource.MustParse("2"),
+									corev1.ResourceName(corev1.ResourceCPU):        resource.MustParse("2"),
+									corev1.ResourceName(corev1.ResourceMemory):     resource.MustParse("1G"),
+								},
+							},
+						},
+					},
+				},
+				Status: corev1.PodStatus{
+					ContainerStatuses: []corev1.ContainerStatus{
+						{
+							Name:        "nginx1",
+							ContainerID: "7479d8c641a73fced579a3517b6d2def3f0a3a3a7e659f86ce4db61dc9f38",
+						},
+					},
+				},
+			},
+			containerName: "nginx1",
+			expectedWorkload: &intelv1alpha1.RmdWorkload{
+				Spec: intelv1alpha1.RmdWorkloadSpec{
+					Rdt: intelv1alpha1.Rdt{
+						Cache: intelv1alpha1.Cache{
+							Min: 2,
+						},
+						Mba: intelv1alpha1.Mba{
+							Percentage: 70,
+							Mbps:       100,
+						},
+					},
+				},
+			},
+		},
+		{
+			name:        "test case 4 - incorrect type for max cache",
+			rmdWorkload: &intelv1alpha1.RmdWorkload{},
+			pod: &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "pod-1",
+					Namespace: "default",
+					UID:       "f906a249-ab9d-4180-9afa-4075e2058ac7",
+					Annotations: map[string]string{
+						"nginx1_policy":    "gold",
+						"nginx1_cache_min": "2.5", //float instead of int
+					},
+				},
+				Spec: corev1.PodSpec{
+					NodeName: "example-node-1.com",
+					Containers: []corev1.Container{
+						{
+							Name: "nginx1",
+							Resources: corev1.ResourceRequirements{
+								Requests: corev1.ResourceList{
+									corev1.ResourceName("intel.com/l3_cache_ways"): resource.MustParse("2"),
+									corev1.ResourceName(corev1.ResourceCPU):        resource.MustParse("2"),
+									corev1.ResourceName(corev1.ResourceMemory):     resource.MustParse("1G"),
+								},
+								Limits: corev1.ResourceList{
+									corev1.ResourceName("intel.com/l3_cache_ways"): resource.MustParse("2"),
+									corev1.ResourceName(corev1.ResourceCPU):        resource.MustParse("2"),
+									corev1.ResourceName(corev1.ResourceMemory):     resource.MustParse("1G"),
+								},
+							},
+						},
+					},
+				},
+				Status: corev1.PodStatus{
+					ContainerStatuses: []corev1.ContainerStatus{
+						{
+							Name:        "nginx1",
+							ContainerID: "7479d8c641a73fced579a3517b6d2def3f0a3a3a7e659f86ce4db61dc9f38",
+						},
+					},
+				},
+			},
+			containerName: "nginx1",
+			expectedWorkload: &intelv1alpha1.RmdWorkload{
+				Spec: intelv1alpha1.RmdWorkloadSpec{
+					Policy: "gold",
+				},
+			},
+		},
+		{
+			name:        "test case 5 - incorrect type for MBA Percentage",
+			rmdWorkload: &intelv1alpha1.RmdWorkload{},
+			pod: &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "pod-1",
+					Namespace: "default",
+					UID:       "f906a249-ab9d-4180-9afa-4075e2058ac7",
+					Annotations: map[string]string{
+						"nginx1_policy":         "gold",
+						"nginx1_cache_min":      "2",
+						"nginx1_mba_percentage": "b", //char instead of int
+						"nginx1_mba_mbps":       "100",
+					},
+				},
+				Spec: corev1.PodSpec{
+					NodeName: "example-node-1.com",
+					Containers: []corev1.Container{
+						{
+							Name: "nginx1",
+							Resources: corev1.ResourceRequirements{
+								Requests: corev1.ResourceList{
+									corev1.ResourceName("intel.com/l3_cache_ways"): resource.MustParse("2"),
+									corev1.ResourceName(corev1.ResourceCPU):        resource.MustParse("2"),
+									corev1.ResourceName(corev1.ResourceMemory):     resource.MustParse("1G"),
+								},
+								Limits: corev1.ResourceList{
+									corev1.ResourceName("intel.com/l3_cache_ways"): resource.MustParse("2"),
+									corev1.ResourceName(corev1.ResourceCPU):        resource.MustParse("2"),
+									corev1.ResourceName(corev1.ResourceMemory):     resource.MustParse("1G"),
+								},
+							},
+						},
+					},
+				},
+				Status: corev1.PodStatus{
+					ContainerStatuses: []corev1.ContainerStatus{
+						{
+							Name:        "nginx1",
+							ContainerID: "7479d8c641a73fced579a3517b6d2def3f0a3a3a7e659f86ce4db61dc9f38",
+						},
+					},
+				},
+			},
+			containerName: "nginx1",
+			expectedWorkload: &intelv1alpha1.RmdWorkload{
+				Spec: intelv1alpha1.RmdWorkloadSpec{
+					Policy: "gold",
+					Rdt: intelv1alpha1.Rdt{
+						Cache: intelv1alpha1.Cache{
+							Min: 2,
+						},
+						Mba: intelv1alpha1.Mba{
+							Mbps: 100,
+						},
+					},
+				},
+			},
+		},
+		{
+			name:        "test case 5 - incorrect type for MBA Mbps",
+			rmdWorkload: &intelv1alpha1.RmdWorkload{},
+			pod: &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "pod-1",
+					Namespace: "default",
+					UID:       "f906a249-ab9d-4180-9afa-4075e2058ac7",
+					Annotations: map[string]string{
+						"nginx1_policy":         "gold",
+						"nginx1_cache_min":      "2",
+						"nginx1_mba_percentage": "70",
+						"nginx1_mba_mbps":       "fifty", //string instead of int
+					},
+				},
+				Spec: corev1.PodSpec{
+					NodeName: "example-node-1.com",
+					Containers: []corev1.Container{
+						{
+							Name: "nginx1",
+							Resources: corev1.ResourceRequirements{
+								Requests: corev1.ResourceList{
+									corev1.ResourceName("intel.com/l3_cache_ways"): resource.MustParse("2"),
+									corev1.ResourceName(corev1.ResourceCPU):        resource.MustParse("2"),
+									corev1.ResourceName(corev1.ResourceMemory):     resource.MustParse("1G"),
+								},
+								Limits: corev1.ResourceList{
+									corev1.ResourceName("intel.com/l3_cache_ways"): resource.MustParse("2"),
+									corev1.ResourceName(corev1.ResourceCPU):        resource.MustParse("2"),
+									corev1.ResourceName(corev1.ResourceMemory):     resource.MustParse("1G"),
+								},
+							},
+						},
+					},
+				},
+				Status: corev1.PodStatus{
+					ContainerStatuses: []corev1.ContainerStatus{
+						{
+							Name:        "nginx1",
+							ContainerID: "7479d8c641a73fced579a3517b6d2def3f0a3a3a7e659f86ce4db61dc9f38",
+						},
+					},
+				},
+			},
+			containerName: "nginx1",
+			expectedWorkload: &intelv1alpha1.RmdWorkload{
+				Spec: intelv1alpha1.RmdWorkloadSpec{
+					Policy: "gold",
+					Rdt: intelv1alpha1.Rdt{
+						Cache: intelv1alpha1.Cache{
+							Min: 2,
+						},
+						Mba: intelv1alpha1.Mba{
+							Percentage: 70,
+						},
+					},
+				},
+			},
+		},
+		{
+			name:        "test case 6 - annotations missing container name",
+			rmdWorkload: &intelv1alpha1.RmdWorkload{},
+			pod: &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "pod-1",
+					Namespace: "default",
+					UID:       "f906a249-ab9d-4180-9afa-4075e2058ac7",
+					Annotations: map[string]string{
+						"policy":         "gold",
+						"cache_min":      "2",
+						"mba_percentage": "70",
+						"mba_mbps":       "100",
+					},
+				},
+				Spec: corev1.PodSpec{
+					NodeName: "example-node-1.com",
+					Containers: []corev1.Container{
+						{
+							Name: "nginx1",
+							Resources: corev1.ResourceRequirements{
+								Requests: corev1.ResourceList{
+									corev1.ResourceName("intel.com/l3_cache_ways"): resource.MustParse("2"),
+									corev1.ResourceName(corev1.ResourceCPU):        resource.MustParse("2"),
+									corev1.ResourceName(corev1.ResourceMemory):     resource.MustParse("1G"),
+								},
+								Limits: corev1.ResourceList{
+									corev1.ResourceName("intel.com/l3_cache_ways"): resource.MustParse("2"),
+									corev1.ResourceName(corev1.ResourceCPU):        resource.MustParse("2"),
+									corev1.ResourceName(corev1.ResourceMemory):     resource.MustParse("1G"),
+								},
+							},
+						},
+					},
+				},
+				Status: corev1.PodStatus{
+					ContainerStatuses: []corev1.ContainerStatus{
+						{
+							Name:        "nginx1",
+							ContainerID: "7479d8c641a73fced579a3517b6d2def3f0a3a3a7e659f86ce4db61dc9f38",
+						},
+					},
+				},
+			},
+			containerName:    "nginx1",
+			expectedWorkload: &intelv1alpha1.RmdWorkload{},
+		},
 	}
 	for _, tc := range tcases {
 		getAnnotationInfo(tc.rmdWorkload, tc.pod, tc.containerName)
 
 		if !reflect.DeepEqual(tc.rmdWorkload, tc.expectedWorkload) {
-			t.Errorf("TestGetAnnotationInfo() failed. Expected: %v, Got: %v\n", tc.expectedWorkload, tc.rmdWorkload)
+			t.Errorf("%s: Failed. Expected: %v, Got: %v\n", tc.name, tc.expectedWorkload, tc.rmdWorkload)
 		}
 	}
 }
