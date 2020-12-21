@@ -2,15 +2,21 @@ package rmdconfig
 
 import (
 	"context"
+	"fmt"
+	"io/ioutil"
+	"strconv"
 
 	intelv1alpha1 "github.com/intel/rmd-operator/pkg/apis/intel/v1alpha1"
 	rmd "github.com/intel/rmd-operator/pkg/rmd"
+	"github.com/intel/rmd-operator/pkg/state"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	//metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -31,8 +37,8 @@ const (
 	l3Cache               = "intel.com/l3_cache_ways"
 )
 
-var rmdPodPath = "/rmd-manifests/rmd-pod.yaml"
-var nodeAgentPath = "/rmd-manifests/rmd-node-agent.yaml"
+var rmdDaemonSetPath = "/rmd-manifests/rmd-pod-ds.yaml"
+var nodeAgentDaemonSetPath = "/rmd-manifests/rmd-node-agent-ds.yaml"
 
 var log = logf.Log.WithName("controller_rmdconfig")
 
@@ -43,13 +49,14 @@ var log = logf.Log.WithName("controller_rmdconfig")
 
 // Add creates a new RmdConfig Controller and adds it to the Manager. The Manager will set fields on the Controller
 // and Start it when the Manager is Started.
-func Add(mgr manager.Manager) error {
-	return add(mgr, newReconciler(mgr))
+func Add(mgr manager.Manager, rmdNodeData *state.RmdNodeData) error {
+	log.Info("Adding RMD CONFIG to Manager")
+	return add(mgr, newReconciler(mgr, rmdNodeData))
 }
 
 // newReconciler returns a new reconcile.Reconciler
-func newReconciler(mgr manager.Manager) reconcile.Reconciler {
-	return &ReconcileRmdConfig{client: mgr.GetClient(), rmdClient: rmd.NewClient(), scheme: mgr.GetScheme()}
+func newReconciler(mgr manager.Manager, rmdNodeData *state.RmdNodeData) reconcile.Reconciler {
+	return &ReconcileRmdConfig{client: mgr.GetClient(), rmdClient: rmd.NewClient(), scheme: mgr.GetScheme(), rmdNodeData: rmdNodeData}
 }
 
 // add adds a new Controller to mgr with r as the reconcile.Reconciler
@@ -94,9 +101,10 @@ var _ reconcile.Reconciler = &ReconcileRmdConfig{}
 type ReconcileRmdConfig struct {
 	// This client, initialized using mgr.Client() above, is a split client
 	// that reads objects from the cache and writes to the apiserver
-	client    client.Client
-	rmdClient rmd.OperatorRmdClient
-	scheme    *runtime.Scheme
+	client      client.Client
+	rmdClient   rmd.OperatorRmdClient
+	scheme      *runtime.Scheme
+	rmdNodeData *state.RmdNodeData
 }
 
 // Reconcile reads that state of the cluster for a RmdConfig object and makes changes based on the state read
@@ -118,9 +126,11 @@ func (r *ReconcileRmdConfig) Reconcile(request reconcile.Request) (reconcile.Res
 			// Request object not found, could have been deleted after reconcile request.
 			// Owned objects are automatically garbage collected. For additional cleanup logic use finalizers.
 			// Return and don't requeue
+			reqLogger.Info("RmdConfig not found, return empty")
 			return reconcile.Result{}, nil
 		}
 		// Error reading the object - requeue the request.
+		reqLogger.Info("Error reading RmdConfig, return empty")
 		return reconcile.Result{}, err
 	}
 
@@ -129,6 +139,7 @@ func (r *ReconcileRmdConfig) Reconcile(request reconcile.Request) (reconcile.Res
 	listOption := client.MatchingLabels{
 		rdtCatLabel: "true",
 	}
+	reqLogger.Info("ABOUT TO LIST LABELLED NODES")
 	err = r.client.List(context.TODO(), labelledNodeList, client.MatchingLabels(listOption))
 	if err != nil {
 		if errors.IsNotFound(err) {
@@ -141,16 +152,185 @@ func (r *ReconcileRmdConfig) Reconcile(request reconcile.Request) (reconcile.Res
 
 	for _, node := range labelledNodeList.Items {
 		// Create RMD Daemonset if not present
+		nodeName := string(node.GetObjectMeta().GetName())
+		rmdNamespacedName := types.NamespacedName{
+			Namespace: defaultNamespace,
+			Name:      "rmd-daemon-set",
+		}
+		err = r.createDaemonSetIfNotPresent(&node, rmdNamespacedName, rmdDaemonSetPath)
+		if err != nil {
+			reqLogger.Info("Failed to create RMD DS")
+			return reconcile.Result{}, err
+		}
 
 		// Create Node Agent Daemonset if not present
+		nodeAgentNamespacedName := types.NamespacedName{
+			Namespace: defaultNamespace,
+			Name:      "node-agent-daemon-set",
+		}
+		err = r.createDaemonSetIfNotPresent(&node, nodeAgentNamespacedName, nodeAgentDaemonSetPath)
+		if err != nil {
+			reqLogger.Info("Failed to create Node Agent DS")
+			return reconcile.Result{}, err
+		}
 
 		// Create RMD Node State if not present
+		rmdNodeStateName := fmt.Sprintf("%s%s", rmdNodeStateNameConst, nodeName)
+		rmdNodeStateNamespacedName := types.NamespacedName{
+			Namespace: defaultNamespace,
+			Name:      rmdNodeStateName,
+		}
+		err = r.createNodeStateIfNotPresent(&node, rmdNodeStateNamespacedName)
+		if err != nil {
+			reqLogger.Info("Failed to create Node State")
+			return reconcile.Result{}, err
+		}
 
 		// Discover L3 cache ways on Node
+		err = r.updateNodeStatusCapacity(&node, rmdNamespacedName)
+		if err != nil {
+			reqLogger.Info("Failed to update cache ways")
+			return reconcile.Result{}, err
+		}
 
 		// Add new node state data to RmdNodeData object
+		r.rmdNodeData.UpdateRmdNodeData(node.Name)
 
 	}
-
+	reqLogger.Info("RMD Config reconciled SUCCESSFULLY")
 	return reconcile.Result{}, nil
+}
+
+func (r *ReconcileRmdConfig) createDaemonSetIfNotPresent(node *corev1.Node, namespacedName types.NamespacedName, path string) error {
+	logger := log.WithName("createDaemonSetIfNotPresent")
+	daemonSet := &appsv1.DaemonSet{}
+	err := r.client.Get(context.TODO(), namespacedName, daemonSet)
+	if err != nil {
+		if errors.IsNotFound(err) {
+			// Create DaemonSet with RMD Pod
+			daemonSet, err = newDaemonSet(path, namespacedName)
+			if err != nil {
+				logger.Error(err, "Failed to build daemonSet from manifest")
+				return err
+			}
+			if err := controllerutil.SetControllerReference(node, daemonSet, r.scheme); err != nil {
+				logger.Error(err, "unable to set owner reference on new daemonSet")
+				return err
+			}
+			err = r.client.Create(context.TODO(), daemonSet)
+			if err != nil {
+				logger.Error(err, "Failed to create daemonSet")
+				return err
+			}
+			logger.Info("New daemonSet created.")
+		}
+	}
+	return nil
+}
+
+func (r *ReconcileRmdConfig) createNodeStateIfNotPresent(node *corev1.Node, namespacedName types.NamespacedName) error {
+	logger := log.WithName("createNodeStateIfNotPresent")
+	rmdNodeState := &intelv1alpha1.RmdNodeState{}
+	err := r.client.Get(context.TODO(), namespacedName, rmdNodeState)
+	if err != nil {
+		if errors.IsNotFound(err) {
+			// RmdNodeState not found, create it
+			rmdNodeState.SetName(namespacedName.Name)
+			rmdNodeState.SetNamespace(namespacedName.Namespace)
+			rmdNodeState.Spec = intelv1alpha1.RmdNodeStateSpec{
+				Node:    node.GetObjectMeta().GetName(),
+				NodeUID: string(node.GetObjectMeta().GetUID()),
+			}
+			workloads := make(map[string]intelv1alpha1.WorkloadMap)
+			rmdNodeState.Status.Workloads = workloads
+			if err := controllerutil.SetControllerReference(node, rmdNodeState, r.scheme); err != nil {
+				logger.Error(err, "unable to set owner reference on new service")
+				return err
+			}
+
+			err = r.client.Create(context.TODO(), rmdNodeState)
+			if err != nil {
+				logger.Error(err, "Failed to create RmdNodeState")
+				return err
+			}
+			logger.Info("RmdNodeState created.")
+		}
+	}
+
+	return nil
+}
+
+func (r *ReconcileRmdConfig) updateNodeStatusCapacity(rmdNode *corev1.Node, rmdPodNamespacedName types.NamespacedName) error {
+	logger := log.WithName("updateNodeStatusCapacity")
+	rmdPod := &corev1.Pod{}
+	err := r.client.Get(context.TODO(), rmdPodNamespacedName, rmdPod)
+	if err != nil {
+		return err
+	}
+	// Query RMD for available cache ways, update node extended resources accordingly.
+	err = errors.NewServiceUnavailable("rmdPod unavailable, requeuing")
+	if len(rmdPod.Spec.Containers) == 0 {
+		return err
+	}
+	if len(rmdPod.Spec.Containers[0].Ports) == 0 {
+		return err
+	}
+
+	addressPrefix := r.rmdClient.GetAddressPrefix()
+	address := fmt.Sprintf("%s%s%s%d", addressPrefix, rmdPod.Status.PodIP, ":", rmdPod.Spec.Containers[0].Ports[0].ContainerPort)
+
+	availableCacheWays, err := r.rmdClient.GetAvailableCacheWays(address)
+	if err != nil {
+		// Cannot access l3 cache extended resources so set to zero.
+		for extendedResource := range rmdNode.Status.Capacity {
+			if extendedResource.String() == l3Cache {
+				rmdNode.Status.Capacity[extendedResource] = resource.MustParse("0")
+			}
+		}
+
+		err = r.client.Status().Update(context.TODO(), rmdNode)
+		if err != nil {
+			logger.Error(err, "failed to update the node with extended resource")
+			return err
+		}
+
+		return nil
+	}
+	// If l3_cache_ways extended resource does not exist on the node or is zero,
+	// update the node status capacity.
+	if _, ok := rmdNode.Status.Capacity[corev1.ResourceName(l3Cache)]; !ok || rmdNode.Status.Capacity[corev1.ResourceName(l3Cache)] == resource.MustParse("0") {
+		rmdNode.Status.Capacity[corev1.ResourceName(l3Cache)] = resource.MustParse(strconv.Itoa(int(availableCacheWays)))
+		err = r.client.Status().Update(context.TODO(), rmdNode)
+		if err != nil {
+			logger.Error(err, "failed to update the node with extended resource")
+			return err
+		}
+	}
+
+	return nil
+}
+
+func newDaemonSet(path string, namespacedName types.NamespacedName) (*appsv1.DaemonSet, error) {
+	yamlFile, err := ioutil.ReadFile(path)
+	if err != nil {
+		log.Error(err, "Error reading DaemonSet manifest")
+		return nil, err
+	}
+
+	decode := scheme.Codecs.UniversalDeserializer().Decode
+	obj, _, err := decode(yamlFile, nil, nil)
+	if err != nil {
+		log.Error(err, "Error decoding DaemonSet manifest")
+		return nil, err
+	}
+
+	rmdDaemonSet := obj.(*appsv1.DaemonSet)
+
+	rmdDaemonSet.GetObjectMeta().SetName(namespacedName.Name)
+	rmdDaemonSet.GetObjectMeta().SetNamespace(namespacedName.Namespace)
+	//nodeLabel := make(map[string]string)
+	//nodeLabel[rmdNodeLabelConst] = nodeUID
+	//rmdDaemonSet.Spec.Template.NodeSelector = nodeLabel
+
+	return rmdDaemonSet, nil
 }
