@@ -112,7 +112,21 @@ func (r *ReconcileRmdNodeState) Reconcile(request reconcile.Request) (reconcile.
 		return reconcile.Result{}, err
 	}
 
-	rmdPodName := fmt.Sprintf("%s%s", rmdPodNameConst, rmdNodeState.Spec.Node)
+	pods := &corev1.PodList{}
+	err = r.client.List(context.TODO(), pods)
+	if err != nil {
+		reqLogger.Info("Failed to list Pods")
+		return reconcile.Result{}, err
+	}
+	rmdPodName := ""
+	for _, pod := range pods.Items {
+		rmdPodName = pod.GetObjectMeta().GetName()
+		if strings.Contains(rmdPodName, "rmd-daemon-set") {
+			break
+		}
+	}
+
+	//rmdPodName := fmt.Sprintf("%s%s", rmdPodNameConst, rmdNodeState.Spec.Node)
 	rmdPodNamespacedName := types.NamespacedName{
 		Namespace: request.Namespace,
 		Name:      rmdPodName,

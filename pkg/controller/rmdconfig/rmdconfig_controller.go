@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"strconv"
+	"strings"
 
 	intelv1alpha1 "github.com/intel/rmd-operator/pkg/apis/intel/v1alpha1"
 	rmd "github.com/intel/rmd-operator/pkg/rmd"
@@ -12,7 +13,6 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
-	//metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -90,7 +90,7 @@ func add(mgr manager.Manager, r reconcile.Reconciler) error {
 	if err != nil {
 		return err
 	}
-
+	log.Info("RMD CONFIG ADDED IN rmdconfig.add()")
 	return nil
 }
 
@@ -149,8 +149,10 @@ func (r *ReconcileRmdConfig) Reconcile(request reconcile.Request) (reconcile.Res
 		reqLogger.Info("Failed to list Nodes")
 		return reconcile.Result{}, err
 	}
+	reqLogger.Info("NODES LISTED")
 
 	for _, node := range labelledNodeList.Items {
+		reqLogger.Info("ENTERING FOR LOOP")
 		// Create RMD Daemonset if not present
 		nodeName := string(node.GetObjectMeta().GetName())
 		rmdNamespacedName := types.NamespacedName{
@@ -162,6 +164,7 @@ func (r *ReconcileRmdConfig) Reconcile(request reconcile.Request) (reconcile.Res
 			reqLogger.Info("Failed to create RMD DS")
 			return reconcile.Result{}, err
 		}
+		reqLogger.Info("RMD DS CREATED")
 
 		// Create Node Agent Daemonset if not present
 		nodeAgentNamespacedName := types.NamespacedName{
@@ -173,7 +176,7 @@ func (r *ReconcileRmdConfig) Reconcile(request reconcile.Request) (reconcile.Res
 			reqLogger.Info("Failed to create Node Agent DS")
 			return reconcile.Result{}, err
 		}
-
+		reqLogger.Info("NODE AGENT DS CREATED")
 		// Create RMD Node State if not present
 		rmdNodeStateName := fmt.Sprintf("%s%s", rmdNodeStateNameConst, nodeName)
 		rmdNodeStateNamespacedName := types.NamespacedName{
@@ -185,16 +188,17 @@ func (r *ReconcileRmdConfig) Reconcile(request reconcile.Request) (reconcile.Res
 			reqLogger.Info("Failed to create Node State")
 			return reconcile.Result{}, err
 		}
-
+		reqLogger.Info("NODE STATE CREATED")
 		// Discover L3 cache ways on Node
 		err = r.updateNodeStatusCapacity(&node, rmdNamespacedName)
 		if err != nil {
 			reqLogger.Info("Failed to update cache ways")
 			return reconcile.Result{}, err
 		}
-
+		reqLogger.Info("NODE STATUS CAPACITY UPDATED")
 		// Add new node state data to RmdNodeData object
 		r.rmdNodeData.UpdateRmdNodeData(node.Name)
+		reqLogger.Info("RMD NODE DATA CREATED")
 
 	}
 	reqLogger.Info("RMD Config reconciled SUCCESSFULLY")
@@ -262,8 +266,24 @@ func (r *ReconcileRmdConfig) createNodeStateIfNotPresent(node *corev1.Node, name
 
 func (r *ReconcileRmdConfig) updateNodeStatusCapacity(rmdNode *corev1.Node, rmdPodNamespacedName types.NamespacedName) error {
 	logger := log.WithName("updateNodeStatusCapacity")
+
+	pods := &corev1.PodList{}
+	err := r.client.List(context.TODO(), pods)
+	if err != nil {
+		logger.Info("Failed to list Pods")
+		return err
+	}
+	podName := ""
+	for _, pod := range pods.Items {
+		podName = pod.GetObjectMeta().GetName()
+		if strings.Contains(podName, "rmd-daemon-set") {
+			break
+		}
+	}
+	rmdPodNamespacedName.Name = podName
+
 	rmdPod := &corev1.Pod{}
-	err := r.client.Get(context.TODO(), rmdPodNamespacedName, rmdPod)
+	err = r.client.Get(context.TODO(), rmdPodNamespacedName, rmdPod)
 	if err != nil {
 		return err
 	}
