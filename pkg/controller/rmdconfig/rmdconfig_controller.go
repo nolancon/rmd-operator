@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io/ioutil"
 	"strconv"
-	"strings"
 
 	intelv1alpha1 "github.com/intel/rmd-operator/pkg/apis/intel/v1alpha1"
 	rmd "github.com/intel/rmd-operator/pkg/rmd"
@@ -50,7 +49,6 @@ var log = logf.Log.WithName("controller_rmdconfig")
 // Add creates a new RmdConfig Controller and adds it to the Manager. The Manager will set fields on the Controller
 // and Start it when the Manager is Started.
 func Add(mgr manager.Manager, rmdNodeData *state.RmdNodeData) error {
-	log.Info("Adding RMD CONFIG to Manager")
 	return add(mgr, newReconciler(mgr, rmdNodeData))
 }
 
@@ -90,7 +88,6 @@ func add(mgr manager.Manager, r reconcile.Reconciler) error {
 	if err != nil {
 		return err
 	}
-	log.Info("RMD CONFIG ADDED IN rmdconfig.add()")
 	return nil
 }
 
@@ -139,7 +136,7 @@ func (r *ReconcileRmdConfig) Reconcile(request reconcile.Request) (reconcile.Res
 	listOption := client.MatchingLabels{
 		rdtCatLabel: "true",
 	}
-	reqLogger.Info("ABOUT TO LIST LABELLED NODES")
+
 	err = r.client.List(context.TODO(), labelledNodeList, client.MatchingLabels(listOption))
 	if err != nil {
 		if errors.IsNotFound(err) {
@@ -152,7 +149,6 @@ func (r *ReconcileRmdConfig) Reconcile(request reconcile.Request) (reconcile.Res
 	reqLogger.Info("NODES LISTED")
 
 	for _, node := range labelledNodeList.Items {
-		reqLogger.Info("ENTERING FOR LOOP")
 		// Create RMD Daemonset if not present
 		nodeName := string(node.GetObjectMeta().GetName())
 		rmdNamespacedName := types.NamespacedName{
@@ -268,16 +264,18 @@ func (r *ReconcileRmdConfig) updateNodeStatusCapacity(rmdNode *corev1.Node, rmdP
 	logger := log.WithName("updateNodeStatusCapacity")
 
 	pods := &corev1.PodList{}
-	err := r.client.List(context.TODO(), pods)
+	err := r.client.List(context.TODO(), pods, client.MatchingLabels(client.MatchingLabels{"name": "rmd-pod"}))
 	if err != nil {
 		logger.Info("Failed to list Pods")
 		return err
 	}
 	podName := ""
 	for _, pod := range pods.Items {
-		podName = pod.GetObjectMeta().GetName()
-		if strings.Contains(podName, "rmd-daemon-set") {
-			break
+		for _, address := range rmdNode.Status.Addresses {
+			if address.Address == pod.Status.HostIP {
+				podName = pod.GetObjectMeta().GetName()
+				break
+			}
 		}
 	}
 	rmdPodNamespacedName.Name = podName
