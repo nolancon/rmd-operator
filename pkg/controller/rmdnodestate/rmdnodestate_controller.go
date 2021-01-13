@@ -113,12 +113,7 @@ func (r *ReconcileRmdNodeState) Reconcile(request reconcile.Request) (reconcile.
 	}
 
 	rmdNode := &corev1.Node{}
-	nodeName := strings.ReplaceAll(request.Name, "rmd-node-state-", "")
-	nodeNamespacedName := types.NamespacedName{
-		Namespace: "",
-		Name:      nodeName,
-	}
-	err = r.client.Get(context.TODO(), nodeNamespacedName, rmdNode)
+	err = r.client.Get(context.TODO(), types.NamespacedName{Namespace: "", Name: rmdNodeState.Spec.Node}, rmdNode)
 	if err != nil {
 		reqLogger.Info("Could not get node")
 		return reconcile.Result{}, err
