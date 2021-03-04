@@ -1,12 +1,12 @@
 apiVersion: intel.com/v1alpha1
 kind: RmdWorkload
 metadata:
-  name: rmdworkload-guaranteed
+  name: rmdworkload-guaranteed-3
 spec:
   # Add fields here
-  coreIds: ["0-3","6","8"]
+  coreIds: ["41-44"]
   rdt:
     cache:
-      max: 2
-      min: 2
-  nodes: ["worker-node-1","worker-node-2"] 
+      max: 1
+      min: 1
+  nodes: ["silpixa00400471"] 
