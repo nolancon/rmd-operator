@@ -25,10 +25,7 @@ const (
 	kubeletEndpoint      = "kubelet.sock"
 	pluginEndpointPrefix = "rmddp"
 	resourceName         = "intel.com/l3_cache_ways"
-	localHostAdd         = "127.0.0.1"
-	httpPrefix           = "http"
-	httpsPrefix          = "https"
-	guaranteedPool       = "guaranteed"
+	timeout              = 5 * time.Second
 )
 
 type pluginManager struct {
@@ -83,12 +80,18 @@ func (pm *pluginManager) Start() error {
 	pluginapi.RegisterDevicePluginServer(pm.grpcServer, pm)
 	//api.RegisterCniEndpointServer(pm.grpcServer, pm)
 
-	go pm.grpcServer.Serve(lis)
+	go func() {
+		err := pm.grpcServer.Serve(lis)
+		if err != nil {
+			return
+		}
+	}()
 
 	// Wait for server to start by launching a blocking connection
-	conn, err := grpc.Dial(pluginEndpoint, grpc.WithInsecure(), grpc.WithBlock(),
-		grpc.WithTimeout(5*time.Second),
-		grpc.WithDialer(func(addr string, timeout time.Duration) (net.Conn, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	conn, err := grpc.DialContext(ctx, pluginEndpoint, grpc.WithInsecure(), grpc.WithBlock(),
+		grpc.WithContextDialer(func(ctx context.Context, addr string) (net.Conn, error) {
 			return net.DialTimeout("unix", addr, timeout)
 		}),
 	)
@@ -126,7 +129,7 @@ func (pm *pluginManager) cleanup() error {
 func Register(kubeletEndpoint, pluginEndpoint, resourceName string) error {
 	log.Printf("DP Registering with Kubelet..")
 	conn, err := grpc.Dial(kubeletEndpoint, grpc.WithInsecure(),
-		grpc.WithDialer(func(addr string, timeout time.Duration) (net.Conn, error) {
+		grpc.WithContextDialer(func(ctx context.Context, addr string) (net.Conn, error) {
 			return net.DialTimeout("unix", addr, timeout)
 		}))
 	if err != nil {
@@ -169,14 +172,15 @@ func (pm *pluginManager) ListAndWatch(empty *pluginapi.Empty, stream pluginapi.D
 			log.Printf("ListAndWatch, send devices response: %v", resp)
 			if err := stream.Send(resp); err != nil {
 				log.Printf("Cannot update device states. Error: %v", err)
-				pm.Stop()
+				if err = pm.Stop(); err != nil {
+					return err
+				}
 				return err
 			}
 		}
 		changed = false
 		time.Sleep(5 * time.Second)
 	}
-	return nil
 }
 
 func (pm *pluginManager) PreStartContainer(ctx context.Context, psRqt *pluginapi.PreStartContainerRequest) (*pluginapi.PreStartContainerResponse, error) {
@@ -224,7 +228,9 @@ func main() {
 		log.Printf("Unable to get instance")
 		return
 	}
-	pm.cleanup()
+	if err := pm.cleanup(); err != nil {
+		log.Printf("cleanup failed with error %v", err)
+	}
 
 	// respond to syscalls for termination
 	sigCh := make(chan os.Signal, 1)
@@ -246,10 +252,10 @@ func main() {
 	log.Printf("Device Plugin registered with the Kubelet")
 
 	// Catch termination signals
-	select {
-	case sig := <-sigCh:
-		log.Printf("Received signal %v", sig)
-		pm.Stop()
+	sig := <-sigCh
+	log.Printf("Received signal %v", sig)
+	if err := pm.Stop(); err != nil {
+		log.Printf("Device Plugin failed to stop")
 		return
 	}
 }

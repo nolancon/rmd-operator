@@ -1,8 +1,11 @@
-.PHONY: all build images deploy clean test manifests remove
+.PHONY: all build images deploy clean test manifests remove lint
 
 export CC := gcc -std=gnu99 -Wno-error=implicit-function-declaration
 
-all:    format build images deploy clean
+lint: 
+	golangci-lint run --enable=golint,bodyclose,gosec,whitespace --skip-files=".*_test.go"
+
+all:    format lint build images deploy clean
 
 test:
 	        go test ./... -v *_test.go

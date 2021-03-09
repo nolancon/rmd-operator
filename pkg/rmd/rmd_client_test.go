@@ -303,7 +303,7 @@ func TestNewClient(t *testing.T) {
 		if err != nil {
 			t.Errorf("error converting spec to YAML")
 		}
-		if err := ioutil.WriteFile("./testpod", content, 0666); err != nil {
+		if err := ioutil.WriteFile("./testpod", content, 0600); err != nil {
 			t.Fatalf("error writing to file (%v)", err)
 		}
 
@@ -336,11 +336,9 @@ func TestNewClient(t *testing.T) {
 			if !reflect.DeepEqual(client, operatorRmdClient) {
 				t.Errorf("Case %v - Expected %v , got %v", tc.name, &operatorRmdClient, client)
 			}
-
 		}
 		os.RemoveAll("./testpod")
 	}
-
 }
 
 func TestIsTLSEnabled(t *testing.T) {
@@ -494,7 +492,7 @@ func TestIsTLSEnabled(t *testing.T) {
 		if err != nil {
 			t.Errorf("error converting ds spec to YAML")
 		}
-		if err := ioutil.WriteFile("./testpod", content, 0666); err != nil {
+		if err := ioutil.WriteFile("./testpod", content, 0600); err != nil {
 			t.Fatalf("error writing to file (%v)", err)
 		}
 
@@ -508,5 +506,4 @@ func TestIsTLSEnabled(t *testing.T) {
 		}
 		os.RemoveAll("./testpod")
 	}
-
 }
