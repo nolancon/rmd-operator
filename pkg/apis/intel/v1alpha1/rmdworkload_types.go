@@ -56,7 +56,7 @@ type RmdWorkloadSpec struct {
 	AllCores        bool              `json:"allCores,omitempty"`
 	CoreIds         []string          `json:"coreIds,omitempty"`
 	ReservedCoreIds []string          `json:"reservedCoreIds,omitempty"`
-	Policy          string            `json:"policy,omitempty,omitempty"`
+	Policy          string            `json:"policy,omitempty"`
 	Rdt             Rdt               `json:"rdt,omitempty"`
 	Plugins         Plugins           `json:"plugins,omitempty"`
 	NodeSelector    map[string]string `json:"nodeSelector,omitempty"`

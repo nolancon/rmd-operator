@@ -1,5 +1,9 @@
 FROM golang:1.13 AS build
 
+ENV http_proxy http://proxy.ir.intel.com:911/
+ENV https_proxy http://proxy.ir.intel.com:911/
+ENV no_proxy http://proxy.ir.intel.com:911
+
 # Set proxies
 #ENV http_proxy=
 #ENV https_proxy=
